@@ -105,9 +105,14 @@ resource "aws_instance" "app" {
     cookie_secure         = coalesce(var.cookie_secure, var.enable_https ? "true" : "false")
     cookie_domain         = var.cookie_domain
     scheme                = var.enable_https ? "https" : "http"
-    # CORS must be the exact frontend origin (credentials:true forbids a
-    # wildcard) — scheme flips to https once enable_https is on.
-    cors_origins = "${var.enable_https ? "https" : "http"}://${local.frontend_domain}"
+    # CORS must be exact origins (credentials:true forbids a wildcard) —
+    # scheme flips to https once enable_https is on. In dev only, also allow
+    # localhost:3000 so a frontend running locally (e.g. `pnpm dev` on
+    # someone's laptop) can call the dev API — never added in prod.
+    cors_origins = join(",", compact([
+      "${var.enable_https ? "https" : "http"}://${local.frontend_domain}",
+      local.environment == "dev" ? "http://localhost:3000" : "",
+    ]))
   })
 
   # Changing user_data alone doesn't re-run it on an existing instance — see
