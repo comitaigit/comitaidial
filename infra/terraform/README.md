@@ -176,19 +176,16 @@ Para `dev`:
 `dig comitai.app` / `dig api.comitai.app` (ou os `dev.` correspondentes)
 até verem o IP certo.
 
-**4.** Ligue o HTTPS:
+**4.** Ligue o HTTPS.
 
-```bash
-# no dev.tfvars ou prod.tfvars:
-enable_https = true
-```
+⚠️ **NÃO** mude `enable_https` em `dev.tfvars`/`prod.tfvars` e rode
+`terraform apply` numa instância que já existe — isso regenera o `user_data`
+da instância, o que faz o Terraform **recriar a EC2 do zero** (IP público
+novo, que quebra os registros DNS já apontados, e perde qualquer coisa
+configurada manualmente nela). `enable_https` só deve ser setado *antes* do
+primeiro `apply` de um ambiente novo, não depois.
 
-```bash
-terraform apply -var-file=dev.tfvars   # ou prod.tfvars
-```
-
-Isso não re-roda o user-data numa instância já existente — rode o certbot
-manualmente por SSH:
+Para ligar HTTPS numa instância já existente, faça por SSH:
 
 ```bash
 $SSH_CMD
@@ -201,8 +198,22 @@ sudo certbot --nginx -d dev.comitai.app -d dev.api.comitai.app \
 (Ajuste os domínios do comando acima para `comitai.app`/`api.comitai.app`
 se estiver fazendo isso em `prod`.)
 
+Isso já configura o Nginx com o certificado e redirect HTTP→HTTPS. Mas
+`deploy.sh` (o script que reinicia os containers) ainda escreve
+`COOKIE_SECURE=false` e `CORS_ORIGINS=http://...` — valores herdados do
+`user_data` original, sem HTTPS. Edite `deploy.sh` na própria instância para
+corrigir isso de forma persistente (sobrevive a `./deploy.sh` seguintes):
+
+```bash
+sed -i 's|CORS_ORIGINS=http://dev.comitai.app|CORS_ORIGINS=https://dev.comitai.app,http://localhost:3000|; s|COOKIE_SECURE=false|COOKIE_SECURE=true|' deploy.sh
+```
+
+(Troque `dev.comitai.app` por `comitai.app` se for `prod` — e em `prod`
+normalmente não se quer o `,http://localhost:3000` extra.)
+
 **5.** Rebuilde a imagem do frontend com `https://` no `NEXT_PUBLIC_API_URL`
-(etapa 2) e rode `./deploy.sh` de novo.
+(etapa 2), faça push, e rode `./deploy.sh` de novo — agora ele já escreve os
+valores HTTPS corretos no `backend.env` e reinicia os dois containers.
 
 ## Rodar migrations do Prisma
 
