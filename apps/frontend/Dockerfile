@@ -34,16 +34,27 @@ WORKDIR /workspace/apps/frontend
 RUN pnpm run build
 
 # ---- prod: minimal runtime image, non-root ----------------------------------
-# next.config.ts sets output: "standalone", so the build stage already
-# produces a self-contained server bundle with only the node_modules
-# actually needed at runtime — no separate prune/install step required.
-FROM node:${NODE_VERSION} AS prod
+# NOT using .next/standalone here: Next.js's output-file-tracing has a known
+# gap with pnpm's symlinked store (github.com/vercel/next.js — standalone
+# builds sometimes omit ESM-only files like @swc/helpers/esm/*, causing a
+# MODULE_NOT_FOUND crash at boot that only shows up at runtime, not build
+# time). Shipping the full pruned node_modules avoids the tracer entirely,
+# at the cost of a larger image — worth it until that gap is fixed upstream.
+FROM base AS prod
 ENV NODE_ENV=production
-WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
-COPY --from=build /workspace/apps/frontend/.next/standalone ./
-COPY --from=build /workspace/apps/frontend/.next/static ./apps/frontend/.next/static
-COPY --from=build /workspace/apps/frontend/public ./apps/frontend/public
+WORKDIR /workspace/apps/frontend
+COPY --from=build /workspace/node_modules /workspace/node_modules
+COPY --from=build /workspace/apps/frontend/node_modules ./node_modules
+COPY --from=build /workspace/apps/frontend/.next ./.next
+COPY --from=build /workspace/apps/frontend/public ./public
+COPY --from=build /workspace/apps/frontend/package.json ./package.json
+COPY --from=build /workspace/apps/frontend/next.config.ts ./next.config.ts
 USER app
 EXPOSE 3000
-CMD ["node", "apps/frontend/server.js"]
+# Runs `next start` directly rather than `pnpm run start`: the latter
+# triggers pnpm's "does node_modules match the lockfile" status check on
+# every invocation (see apps/backend/Dockerfile's dev stage for the same
+# issue), which tries to write a temp file in this directory — owned by
+# root from the COPY above, unwritable by the non-root `app` user — and
+# crashes the container before Next.js ever starts.
+CMD ["node_modules/.bin/next", "start"]

@@ -48,17 +48,31 @@ COPY apps/backend ./apps/backend
 WORKDIR /workspace/apps/backend
 RUN pnpm exec prisma generate
 RUN pnpm run build
-RUN pnpm prune --prod
+# CI=true skips pnpm's interactive confirmation prompt before removing
+# node_modules, which otherwise aborts the build in any non-TTY environment
+# (Docker build, CI pipelines).
+RUN CI=true pnpm prune --prod
 
 # ---- prod: minimal runtime image, non-root, no build tooling ---------------
+# Keeps the same /workspace + apps/backend directory depth as the deps/build
+# stages rather than flattening into /app — pnpm's node_modules are
+# symlink-based with relative paths computed for that depth (e.g.
+# apps/backend/node_modules/@nestjs/common -> ../../../../node_modules/.pnpm/...),
+# and flattening the layout breaks those symlinks silently (they resolve
+# outside the image, causing a MODULE_NOT_FOUND at boot even though the
+# build itself succeeds).
 FROM node:${NODE_VERSION} AS prod
 ENV NODE_ENV=production
-WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
-COPY --from=build /workspace/apps/backend/node_modules ./node_modules
-COPY --from=build /workspace/apps/backend/dist ./dist
-COPY --from=build /workspace/apps/backend/prisma ./prisma
-COPY --from=build /workspace/apps/backend/package.json ./package.json
+WORKDIR /workspace
+COPY --from=build /workspace/node_modules ./node_modules
+COPY --from=build /workspace/apps/backend/node_modules ./apps/backend/node_modules
+COPY --from=build /workspace/apps/backend/dist ./apps/backend/dist
+COPY --from=build /workspace/apps/backend/prisma ./apps/backend/prisma
+COPY --from=build /workspace/apps/backend/package.json ./apps/backend/package.json
+WORKDIR /workspace/apps/backend
 USER app
 EXPOSE 3001
-CMD ["node", "dist/main.js"]
+# nest build (with the default tsconfig rootDir) emits to dist/src/main.js,
+# not dist/main.js — verified against the actual build output.
+CMD ["node", "dist/src/main.js"]
