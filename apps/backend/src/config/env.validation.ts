@@ -47,6 +47,25 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   REFRESH_COOKIE_NAME = 'comitai_rt';
+
+  // Controls the refresh cookie's `Secure` flag. Defaults to following
+  // NODE_ENV (see auth.controller.ts), which is correct once the app sits
+  // behind HTTPS. Set explicitly to 'false' for a production deployment that
+  // is temporarily served over plain HTTP (e.g. no domain/ACM cert yet) —
+  // browsers silently drop `Secure` cookies on a non-HTTPS origin, which
+  // otherwise breaks login without any visible error. Flip back to unset
+  // (or 'true') as soon as HTTPS is in front of the app.
+  @IsIn(['true', 'false'])
+  @IsOptional()
+  COOKIE_SECURE?: 'true' | 'false';
+
+  // Set to a parent domain (e.g. ".comitai.app") when the frontend and API
+  // are on sibling subdomains (comitai.app / api.comitai.app) — otherwise
+  // the refresh cookie is host-only and never reaches the API's origin.
+  // Leave unset for a single-origin deployment.
+  @IsString()
+  @IsOptional()
+  COOKIE_DOMAIN?: string;
 }
 
 /**

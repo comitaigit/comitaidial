@@ -1,0 +1,129 @@
+#!/bin/bash
+# Provisions a fresh Amazon Linux 2023 (arm64) instance: Docker, Nginx,
+# certbot, and the deploy.sh script that pulls images + secrets and (re)starts
+# the containers. Mirrors fechou-backend's EC2 setup, but with Nginx routing
+# by server_name (vhost) instead of by path, since frontend and API live on
+# sibling subdomains (${frontend_domain} / ${api_domain}).
+set -euo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+dnf update -y
+dnf install -y docker nginx
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# --- deploy.sh: pulls the latest images + secrets, (re)starts containers ---
+cat > /home/ec2-user/deploy.sh <<'DEPLOY_SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+AWS_REGION="${aws_region}"
+ECR_BACKEND="${ecr_backend_repo_url}"
+ECR_FRONTEND="${ecr_frontend_repo_url}"
+SECRET_PREFIX="${secret_prefix}"
+BACKEND_TAG="${backend_image_tag}"
+FRONTEND_TAG="${frontend_image_tag}"
+
+echo "Logging in to ECR..."
+aws ecr get-login-password --region "$AWS_REGION" | \
+  docker login --username AWS --password-stdin "$(echo "$ECR_BACKEND" | cut -d/ -f1)"
+
+echo "Fetching secrets from Secrets Manager..."
+DATABASE_URL=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/DATABASE_URL" --query SecretString --output text)
+JWT_ACCESS_SECRET=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/JWT_ACCESS_SECRET" --query SecretString --output text)
+JWT_REFRESH_SECRET=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/JWT_REFRESH_SECRET" --query SecretString --output text)
+
+cat > /home/ec2-user/backend.env <<EOF
+NODE_ENV=production
+PORT=3001
+DATABASE_URL=$DATABASE_URL
+JWT_ACCESS_SECRET=$JWT_ACCESS_SECRET
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
+JWT_REFRESH_TTL=30d
+CORS_ORIGINS=${cors_origins}
+REFRESH_COOKIE_NAME=comitai_rt
+COOKIE_SECURE=${cookie_secure}
+COOKIE_DOMAIN=${cookie_domain}
+EOF
+chmod 600 /home/ec2-user/backend.env
+
+echo "Pulling images..."
+docker pull "$ECR_BACKEND:$BACKEND_TAG"
+docker pull "$ECR_FRONTEND:$FRONTEND_TAG"
+
+echo "Restarting backend..."
+docker stop comitai-backend 2>/dev/null || true
+docker rm comitai-backend 2>/dev/null || true
+docker run -d \
+  --name comitai-backend \
+  --restart unless-stopped \
+  --env-file /home/ec2-user/backend.env \
+  -p 3001:3001 \
+  "$ECR_BACKEND:$BACKEND_TAG"
+
+echo "Restarting frontend..."
+docker stop comitai-frontend 2>/dev/null || true
+docker rm comitai-frontend 2>/dev/null || true
+docker run -d \
+  --name comitai-frontend \
+  --restart unless-stopped \
+  -e NODE_ENV=production \
+  -p 3000:3000 \
+  "$ECR_FRONTEND:$FRONTEND_TAG"
+
+echo "Deploy complete."
+DEPLOY_SCRIPT
+
+chmod +x /home/ec2-user/deploy.sh
+chown ec2-user:ec2-user /home/ec2-user/deploy.sh
+
+# --- Nginx: one vhost per subdomain, each proxying to its own container ----
+cat > /etc/nginx/conf.d/comitai.conf <<'NGINX_CONF'
+server {
+    listen 80;
+    server_name ${frontend_domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${api_domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX_CONF
+
+systemctl enable --now nginx
+
+# --- Run the first deploy (will fail gracefully if ECR is still empty — the
+# very first `terraform apply` happens before any image has been pushed;
+# re-run deploy.sh by hand once images exist, see README.md) ----------------
+sudo -u ec2-user /home/ec2-user/deploy.sh || echo "Initial deploy failed — expected if no images have been pushed to ECR yet. Push images, then SSH in and re-run deploy.sh."
+
+%{ if enable_https ~}
+# --- HTTPS via certbot (Let's Encrypt), one certificate covering both
+# subdomains. Only succeeds once both domains' DNS already resolve to this
+# instance's IP — if they don't yet, this fails and you just re-run it
+# manually later (see README.md). ---------------------------------------------
+dnf install -y python3-pip
+pip3 install certbot certbot-nginx
+certbot --nginx \
+  -d "${frontend_domain}" -d "${api_domain}" \
+  --non-interactive --agree-tos -m admin@${frontend_domain} --redirect || \
+  echo "certbot failed — likely DNS for ${frontend_domain}/${api_domain} isn't pointed at this instance's IP yet. Point the DNS, then SSH in and re-run: certbot --nginx -d ${frontend_domain} -d ${api_domain}"
+%{ endif ~}

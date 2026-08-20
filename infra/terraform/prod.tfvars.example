@@ -1,0 +1,21 @@
+# Copy to prod.tfvars (gitignored) — used only with the "prod" workspace:
+# `terraform workspace select prod && terraform apply -var-file=prod.tfvars`.
+#
+# Secrets (DB password, JWT secrets) are NOT set here — Terraform generates
+# them and stores them in Secrets Manager automatically (see secrets.tf),
+# with a namespace that never overlaps dev's.
+#
+# Domains default to comitai.app (frontend) / api.comitai.app (API) — see
+# variables.tf's frontend_domain_by_env/api_domain_by_env. No need to set
+# them here unless you want something different.
+
+# Must already exist in this account/region — create once with:
+#   aws ec2 create-key-pair --key-name comitai-prod-key --region sa-east-1 \
+#     --query 'KeyMaterial' --output text > ~/.ssh/comitai-prod-key.pem
+#   chmod 400 ~/.ssh/comitai-prod-key.pem
+ec2_key_name = "comitai-prod-key"
+
+# Flip to true (and re-apply) only after pointing both comitai.app and
+# api.comitai.app's DNS A records at the instance's Elastic IP
+# (terraform output instance_public_ip).
+# enable_https = true

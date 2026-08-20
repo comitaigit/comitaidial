@@ -37,11 +37,32 @@ export class AuthController {
     return this.config.get<string>('REFRESH_COOKIE_NAME', 'comitai_rt');
   }
 
+  // COOKIE_SECURE, when explicitly set, overrides the NODE_ENV-based default
+  // — see env.validation.ts for why (plain-HTTP production deploys).
+  private isCookieSecure(): boolean {
+    const override = this.config.get<'true' | 'false' | undefined>(
+      'COOKIE_SECURE',
+    );
+    if (override !== undefined) return override === 'true';
+    return this.config.get('NODE_ENV') === 'production';
+  }
+
+  // COOKIE_DOMAIN, when set (e.g. ".comitai.app"), lets the refresh cookie
+  // be sent across sibling subdomains — the frontend (comitai.app) and API
+  // (api.comitai.app) are different origins, so without this the cookie set
+  // by the API response would never reach it back on refresh/logout calls
+  // made from the frontend's origin. Left unset, the cookie defaults to
+  // host-only (current behavior for a single-origin deployment).
+  private cookieDomain(): string | undefined {
+    return this.config.get<string>('COOKIE_DOMAIN') || undefined;
+  }
+
   private setRefreshCookie(res: Response, token: string): void {
     res.cookie(this.cookieName(), token, {
       httpOnly: true,
-      secure: this.config.get('NODE_ENV') === 'production',
+      secure: this.isCookieSecure(),
       sameSite: 'strict',
+      domain: this.cookieDomain(),
       path: AUTH_COOKIE_PATH, // only sent to auth endpoints (refresh/logout), not the whole API
       maxAge: this.refreshCookieMaxAgeMs(),
     });
@@ -58,7 +79,10 @@ export class AuthController {
   }
 
   private clearRefreshCookie(res: Response): void {
-    res.clearCookie(this.cookieName(), { path: AUTH_COOKIE_PATH });
+    res.clearCookie(this.cookieName(), {
+      path: AUTH_COOKIE_PATH,
+      domain: this.cookieDomain(),
+    });
   }
 
   private requestMeta(req: Request) {
