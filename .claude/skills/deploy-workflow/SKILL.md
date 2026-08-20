@@ -34,7 +34,17 @@ okay** before doing anything to prod. This is a real approval gate, not a
 formality:
 
 - State plainly what changed and give the dev URL(s) to check
-  (`https://dev.comitai.app`, `https://dev.api.comitai.app/health`).
+  (`https://dev.comitai.app`, `https://dev.api.comitai.app/health`). The CEO
+  needs no setup at all for this — no cloning the repo, no local dev
+  server — just opening that URL in a browser, since dev is already a real,
+  running deployment.
+- Optionally, the CEO can also review the actual code change (not just the
+  running app) via **claude.ai with the GitHub connector** — no terminal,
+  no Claude Code needed on their end. Connect once at claude.ai → Settings →
+  Connectors → GitHub, then ask things like "show me what changed on dev"
+  or "diff dev against main" in a normal conversation. This is a read/review
+  channel only — it does not write code or deploy anything; that stays with
+  whoever (or whichever Claude Code session) is driving the actual release.
 - Wait for an explicit go-ahead ("looks good", "ship it", "approved" — an
   actual confirmation) before touching prod. Silence, or the CEO being busy,
   is not approval.
