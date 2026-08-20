@@ -27,8 +27,14 @@ resource "aws_secretsmanager_secret" "database_url" {
 }
 
 resource "aws_secretsmanager_secret_version" "database_url" {
-  secret_id     = aws_secretsmanager_secret.database_url.id
-  secret_string = "postgresql://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:5432/${var.db_name}?schema=public"
+  secret_id = aws_secretsmanager_secret.database_url.id
+  # sslmode=no-verify: RDS enforces TLS by default (rejects plaintext
+  # connections with "no pg_hba.conf entry ... no encryption", discovered
+  # deploying against the real instance), but its certificate isn't from a
+  # CA the pg driver trusts out of the box. no-verify keeps the connection
+  # encrypted without validating that chain — acceptable here since the RDS
+  # endpoint is only reachable from inside the VPC in the first place.
+  secret_string = "postgresql://${var.db_username}:${random_password.db.result}@${aws_db_instance.main.address}:5432/${var.db_name}?schema=public&sslmode=no-verify"
 }
 
 resource "aws_secretsmanager_secret" "jwt_access_secret" {
