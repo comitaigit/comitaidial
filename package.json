@@ -1,0 +1,17 @@
+{
+  "name": "comitai",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "dev": "docker compose up -d postgres backend && pnpm dev:frontend",
+    "dev:frontend": "pnpm --filter comitai-frontend dev",
+    "dev:backend": "docker compose up backend",
+    "build:frontend": "pnpm --filter comitai-frontend build",
+    "build:backend": "pnpm --filter comitai-backend build",
+    "lint:frontend": "pnpm --filter comitai-frontend lint",
+    "lint:backend": "pnpm --filter comitai-backend lint",
+    "db:migrate": "pnpm --filter comitai-backend exec prisma migrate dev",
+    "db:studio": "pnpm --filter comitai-backend exec prisma studio",
+    "stop": "docker compose down"
+  }
+}

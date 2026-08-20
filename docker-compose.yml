@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: comitai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: comitai
+      POSTGRES_PASSWORD: comitai_dev_password
+      POSTGRES_DB: comitai
+    ports:
+      # Host 5433 → container 5432, so a locally installed Postgres on the
+      # default port doesn't collide with this one.
+      - "5433:5432"
+    volumes:
+      - comitai_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comitai -d comitai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      # Context is the monorepo root — the Dockerfile needs the workspace
+      # lockfile (pnpm-workspace.yaml/pnpm-lock.yaml) to resolve this as a
+      # pnpm workspace package, not just apps/backend in isolation.
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      target: dev
+    container_name: comitai-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://comitai:comitai_dev_password@postgres:5432/comitai?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-only-change-me-access-secret-please-rotate}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-only-change-me-refresh-secret-please-rotate}
+      JWT_REFRESH_TTL: 30d
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      REFRESH_COOKIE_NAME: comitai_rt
+    volumes:
+      # Bind-mount source for hot reload in dev; anonymous volumes keep the
+      # container's own node_modules/generated client from being shadowed by
+      # the host's (possibly different-OS-built) versions.
+      - ./apps/backend:/workspace/apps/backend
+      - /workspace/apps/backend/node_modules
+      - /workspace/node_modules
+    working_dir: /workspace/apps/backend
+    command: ["pnpm", "run", "start:dev"]
+
+volumes:
+  comitai_postgres_data:

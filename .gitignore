@@ -1,0 +1,15 @@
+# Root-level safety net — each app also has its own .gitignore, but env files
+# are sensitive enough to guard at every level rather than relying only on
+# the nested ignore files.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+node_modules/
+dist/
+build/
+coverage/
+
+.DS_Store
+*.log

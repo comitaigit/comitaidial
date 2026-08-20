@@ -1,0 +1,99 @@
+// Prisma schema for Comitai's auth/security domain.
+// See ../../.claude/skills/backend-conventions/SKILL.md for the rules this maps to.
+
+generator client {
+  provider = "prisma-client-js"
+  // No custom `output`: this generates into node_modules/@prisma/client,
+  // which the Nest watcher never needs to copy into dist/ (unlike a
+  // src/-relative output, whose non-.ts artifacts — .wasm, engine binaries —
+  // tsc's watch mode doesn't track, breaking `nest start --watch`).
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id    String @id @default(uuid())
+  email String @unique
+  name  String
+
+  /// Argon2id hash — never the plaintext password.
+  passwordHash String
+
+  role Role @default(MEMBER)
+
+  emailVerifiedAt DateTime?
+
+  /// Account lockout (brute-force mitigation), tracked in-DB so it survives
+  /// across instances instead of an in-memory counter.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  createdAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  loginEvents   LoginEvent[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 hash of the refresh token — the raw token is only ever sent to
+  /// the client in the httpOnly cookie, never stored.
+  tokenHash String @unique
+
+  /// Rotation chain: each refresh issues a new token and revokes this one,
+  /// pointing forward so reuse of a revoked token is detectable (token-theft
+  /// detection) and the whole chain can be revoked.
+  replacedByTokenHash String?
+
+  userAgent String?
+  ipAddress String?
+
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum LoginEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  LOGOUT
+  TOKEN_REUSE_DETECTED
+  ACCOUNT_LOCKED
+}
+
+model LoginEvent {
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Kept even when the user lookup fails (e.g. unknown email) for
+  /// brute-force / credential-stuffing monitoring.
+  email String?
+
+  type      LoginEventType
+  ipAddress String?
+  userAgent String?
+  reason    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([email])
+  @@map("login_events")
+}

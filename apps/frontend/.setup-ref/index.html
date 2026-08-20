@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Comitai Dial V0 — Protótipo Low‑Fi</title>
+<style>
+:root{
+  --bg:#f4f5f7;--panel:#fff;--ink:#101318;--muted:#667085;--line:#d8dde6;
+  --dark:#15171c;--dark2:#24272f;--accent:#335eea;--soft:#eef2ff;
+  --ok:#067647;--warn:#9a6700;--bad:#b42318;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+.app{min-height:100vh;display:grid;grid-template-columns:238px minmax(0,1fr)}
+.sidebar{background:var(--dark);color:#fff;padding:16px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+.brand{display:flex;gap:10px;align-items:center;padding:5px 8px 19px}
+.logo{width:34px;height:34px;border-radius:9px;background:#fff;color:#111;display:grid;place-items:center;font-weight:900}
+.brand b{font-size:15px;letter-spacing:-.02em}.brand small{display:block;color:#9ca3af;font-size:11px;margin-top:2px}
+.side-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#777f8d;padding:14px 9px 6px}
+.nav{width:100%;border:0;background:transparent;color:#cbd0d8;padding:10px;border-radius:8px;text-align:left;margin:2px 0;display:flex;align-items:center;justify-content:space-between}
+.nav:hover,.nav.active{background:var(--dark2);color:#fff}
+.badge-count{border:1px solid #424753;font-size:10px;border-radius:999px;padding:2px 6px}
+.main{min-width:0}
+.topbar{height:62px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;position:sticky;top:0;z-index:20}
+.ws b{display:block;font-size:14px}.ws span{font-size:12px;color:var(--muted)}
+.user{display:flex;align-items:center;gap:10px}.online{width:9px;height:9px;background:#12b76a;border-radius:50%}.avatar{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#e9edf3;display:grid;place-items:center;font-weight:800}
+.content{max-width:1480px;margin:auto;padding:22px}
+.page{display:none}.page.active{display:block}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
+.head h1{margin:0 0 4px;font-size:24px;letter-spacing:-.03em}
+.sub{font-size:13px;color:var(--muted)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:#fff;color:#20242b;padding:9px 12px;border-radius:8px;font-weight:700}
+.btn:hover{background:#f8f9fb}.btn.primary{background:var(--accent);border-color:var(--accent);color:white}.btn.small{padding:6px 9px;font-size:12px}.btn.bad{color:var(--bad);border-color:#f5b7b1}.btn:disabled{opacity:.45;cursor:not-allowed}
+.grid{display:grid;gap:14px}.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.two{grid-template-columns:1.35fr .9fr}.three{grid-template-columns:repeat(3,minmax(0,1fr))}.dial-grid{grid-template-columns:1.05fr .95fr}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card-head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-head h2{margin:0;font-size:16px}.card-head h3{margin:0;font-size:14px}.pad{padding:16px}
+.kpi{padding:15px}.kpi .label{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}.kpi .value{font-size:27px;font-weight:800;margin-top:6px}.delta{font-size:12px;color:var(--ok);margin-top:4px}.delta.bad{color:var(--bad)}
+.tag{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;border:1px solid var(--line);background:#fff}
+.tag.info{color:#1849a9;background:#eff4ff;border-color:#c7d7fe}.tag.ok{color:var(--ok);background:#ecfdf3;border-color:#abefc6}.tag.warn{color:var(--warn);background:#fffaeb;border-color:#fedf89}.tag.bad{color:var(--bad);background:#fef3f2;border-color:#fecdca}
+.muted{color:var(--muted)}
+.table{width:100%;border-collapse:collapse}.table th,.table td{padding:11px 13px;border-bottom:1px solid #e8ebf0;font-size:12px;text-align:left}.table th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:#fbfcfd}.table tr:last-child td{border-bottom:0}.table tr.clickable:hover{background:#fafbfc;cursor:pointer}
+.bar{height:8px;background:#eef0f4;border-radius:99px;overflow:hidden}.bar > i{display:block;height:100%;background:#6b7280;border-radius:99px}
+.chart{height:170px;border-left:1px solid var(--line);border-bottom:1px solid var(--line);margin:15px 4px 4px;position:relative;background:linear-gradient(to bottom,transparent 24%,#eef0f4 25%,transparent 26%,transparent 49%,#eef0f4 50%,transparent 51%,transparent 74%,#eef0f4 75%,transparent 76%)}
+.chart svg{width:100%;height:100%}
+.field{display:grid;gap:5px;margin-bottom:11px}.field label{font-size:11px;font-weight:700;color:#444b55}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fff}.field textarea{min-height:82px;resize:vertical}
+.split{display:flex;justify-content:space-between;gap:10px;align-items:center}.stack{display:grid;gap:10px}
+.person{display:flex;align-items:center;gap:10px}.initial{width:36px;height:36px;border-radius:9px;background:#eef0f4;display:grid;place-items:center;font-weight:800}.person b{font-size:13px;display:block}.person span{font-size:11px;color:var(--muted)}
+.dial-stage{padding:18px}.dial-status{text-align:center;padding:22px 10px}.pulse{width:74px;height:74px;border-radius:50%;border:2px dashed #8d95a3;margin:0 auto 12px;display:grid;place-items:center;font-weight:900;font-size:22px}.dial-lines{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:15px 0}.linebox{border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;background:#fafbfc}.linebox strong{display:block;font-size:12px;margin-top:3px}.linebox span{font-size:10px;color:var(--muted)}
+.context-fact{padding:10px;border:1px dashed #cbd1da;border-radius:9px;background:#fbfcfd}.context-fact b{font-size:11px;display:block;margin-bottom:4px}.context-fact p{font-size:12px;line-height:1.45}.source{font-size:10px;color:#52606d;margin-top:5px}
+.outcomes{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.outcome{border:1px solid var(--line);background:white;border-radius:8px;padding:9px;text-align:left;font-size:11px}.outcome:hover,.outcome.selected{border-color:var(--accent);background:var(--soft)}
+.inbox{display:grid;grid-template-columns:320px minmax(0,1fr);min-height:600px}.threads{border-right:1px solid var(--line);background:#fbfcfd}.thread{padding:12px;border-bottom:1px solid #e8ebf0;cursor:pointer}.thread:hover,.thread.active{background:white}.thread .preview{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}.thread .meta{font-size:10px;color:#8a93a1}
+.conversation{display:grid;grid-template-rows:auto 1fr auto;min-height:600px}.conv-head{padding:12px 15px;border-bottom:1px solid var(--line)}.messages{padding:18px;display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:480px;background:#fff}.msg{max-width:74%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:12px;line-height:1.45}.msg.me{align-self:flex-end;background:#f3f6ff}.msg.them{align-self:flex-start;background:#fafbfc}.msg small{display:block;color:var(--muted);font-size:9px;margin-top:5px}.composer{border-top:1px solid var(--line);padding:12px;background:#fbfcfd}.composer-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px}.composer input,.composer select{border:1px solid var(--line);border-radius:8px;padding:9px}
+.notice{padding:10px 12px;border:1px dashed #a6b1c1;border-radius:9px;background:#fafbfc;font-size:12px;line-height:1.45}
+.timeline{display:grid;gap:8px}.event{display:grid;grid-template-columns:80px 1fr;gap:10px;font-size:12px}.event time{color:var(--muted)}
+.health{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #eceef2}.health:last-child{border-bottom:0}.health .left{display:flex;gap:10px;align-items:center}.channel-icon{width:34px;height:34px;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;font-weight:800;background:#fafbfc}
+.empty{padding:35px;text-align:center;color:var(--muted);font-size:13px}
+.toast{position:fixed;right:22px;bottom:22px;max-width:360px;background:#15171c;color:white;padding:12px 14px;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.18);font-size:12px;display:none;z-index:50}.toast.show{display:block}
+.modal{position:fixed;inset:0;background:rgba(16,19,24,.45);display:none;align-items:center;justify-content:center;z-index:40;padding:20px}.modal.show{display:flex}.modal-card{width:min(560px,100%);background:white;border-radius:13px;border:1px solid var(--line);overflow:hidden}.modal-card .modal-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}.modal-card .modal-body{padding:16px}
+.lowfi{font-size:10px;color:#7d8490;border:1px dashed #aeb4bf;padding:3px 6px;border-radius:6px}
+.small-note{font-size:10px;color:var(--muted);line-height:1.45}
+@media(max-width:1050px){.kpis,.three{grid-template-columns:repeat(2,1fr)}.two,.dial-grid{grid-template-columns:1fr}.app{grid-template-columns:82px 1fr}.brand b,.brand small,.side-label,.nav span:first-child{display:none}.nav{justify-content:center}.badge-count{display:none}.sidebar{padding:14px 8px}.brand{justify-content:center}.inbox{grid-template-columns:250px 1fr}}
+@media(max-width:760px){.app{display:block}.sidebar{display:none}.content{padding:14px}.kpis,.three{grid-template-columns:1fr}.inbox{grid-template-columns:1fr}.threads{border-right:0}.conversation{min-height:520px}.topbar{padding:0 14px}.head{display:block}.actions{margin-top:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">C</div><div><b>Comitai Dial</b><small>V0 · low fidelity</small></div></div>
+    <div class="side-label">Operação</div>
+    <button class="nav active" data-page="overview"><span>▦ Visão geral</span></button>
+    <button class="nav" data-page="dialer"><span>☎ Dialer</span><span class="badge-count">P0</span></button>
+    <button class="nav" data-page="inbox"><span>▣ Inbox unificada</span><span class="badge-count" id="inboxBadge">3</span></button>
+    <button class="nav" data-page="accounts"><span>▤ Accounts</span></button>
+    <button class="nav" data-page="people"><span>◎ Prospects</span></button>
+    <button class="nav" data-page="sequences"><span>↻ Cadências</span></button>
+    <div class="side-label">Gestão</div>
+    <button class="nav" data-page="metrics"><span>⌁ Performance</span></button>
+    <button class="nav" data-page="health"><span>♡ Saúde dos canais</span></button>
+    <button class="nav" data-page="settings"><span>⚙ Workspace</span></button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="ws"><b>Workspace Comitai</b><span>Tenant: comitai-internal · Conta: Humand</span></div>
+      <div class="user"><span class="online"></span><span class="sub">Marilia · BDR</span><div class="avatar">M</div></div>
+    </header>
+
+    <div class="content">
+      <!-- OVERVIEW -->
+      <section class="page active" id="overview">
+        <div class="head">
+          <div><h1>Hoje, Marilia</h1><div class="sub">Seu foco é gerar mais conversas sem perder contexto entre telefone, WhatsApp e LinkedIn.</div></div>
+          <div class="actions"><span class="lowfi">PROTÓTIPO LOW‑FI</span><button class="btn primary goto" data-go="dialer">Iniciar bloco de discagem</button></div>
+        </div>
+        <div class="grid kpis">
+          <div class="card kpi"><div class="label">Conversas humanas</div><div class="value" id="kpiConversations">18</div><div class="delta">+38% vs baseline</div></div>
+          <div class="card kpi"><div class="label">Tentativas</div><div class="value" id="kpiAttempts">94</div><div class="delta">+21 hoje</div></div>
+          <div class="card kpi"><div class="label">Custo / conversa</div><div class="value">R$ 14,80</div><div class="delta">−18% vs baseline</div></div>
+          <div class="card kpi"><div class="label">Abandono</div><div class="value">2,1%</div><div class="delta bad">Meta interna &lt; 3%</div></div>
+        </div>
+        <div class="grid two" style="margin-top:14px">
+          <div class="card">
+            <div class="card-head"><h2>Fila de trabalho</h2><span class="tag info">próxima melhor ação manual</span></div>
+            <table class="table">
+              <thead><tr><th>Prospect</th><th>Conta</th><th>Próxima ação</th><th>Por quê</th></tr></thead>
+              <tbody>
+                <tr class="clickable goto" data-go="dialer"><td><div class="person"><div class="initial">AM</div><div><b>Ana Martins</b><span>Head de RH</span></div></div></td><td>Grupo Atlas</td><td><span class="tag">☎ Ligar</span></td><td>2 tentativas · sem resposta</td></tr>
+                <tr class="clickable goto" data-go="inbox"><td><div class="person"><div class="initial">RC</div><div><b>Rafael Costa</b><span>Diretor Comercial</span></div></div></td><td>NovaLog</td><td><span class="tag ok">WA Responder</span></td><td>Mensagem recebida há 12 min</td></tr>
+                <tr class="clickable goto" data-go="inbox"><td><div class="person"><div class="initial">JM</div><div><b>João Melo</b><span>VP Sales</span></div></div></td><td>FitPay</td><td><span class="tag info">in LinkedIn</span></td><td>Aceitou conexão ontem</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Saúde rápida</h2><button class="btn small goto" data-go="health">Ver detalhes</button></div>
+            <div class="pad">
+              <div class="health"><div class="left"><div class="channel-icon">☎</div><div><b>Voz</b><div class="sub">+55 11 4040‑2026</div></div></div><span class="tag ok">Operacional</span></div>
+              <div class="health"><div class="left"><div class="channel-icon">WA</div><div><b>WhatsApp</b><div class="sub">+55 11 98888‑0101</div></div></div><span class="tag ok">Conectado</span></div>
+              <div class="health"><div class="left"><div class="channel-icon">in</div><div><b>LinkedIn</b><div class="sub">Marilia Souza</div></div></div><span class="tag warn">62% limite hoje</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DIALER -->
+      <section class="page" id="dialer">
+        <div class="head">
+          <div><h1>Dialer</h1><div class="sub">Discagem paralela com contexto de conta e outcome obrigatório.</div></div>
+          <div class="actions"><span class="tag info" id="dialMode">Paralelismo: 3x</span><button class="btn" id="changeListBtn">Trocar lista</button></div>
+        </div>
+        <div class="grid dial-grid">
+          <div class="card">
+            <div class="card-head"><h2>Bloco: Heads de RH · Sudeste</h2><span class="tag">23 contatos restantes</span></div>
+            <div class="dial-stage">
+              <div class="dial-status">
+                <div class="pulse" id="pulse">☎</div>
+                <h2 id="dialTitle" style="margin:0 0 6px">Pronto para iniciar</h2>
+                <p class="sub" id="dialSub">O sistema irá abrir até 3 linhas e conectar você ao primeiro atendimento humano.</p>
+              </div>
+              <div class="dial-lines">
+                <div class="linebox"><span>Linha 1</span><strong id="line1">Aguardando</strong></div>
+                <div class="linebox"><span>Linha 2</span><strong id="line2">Aguardando</strong></div>
+                <div class="linebox"><span>Linha 3</span><strong id="line3">Aguardando</strong></div>
+              </div>
+              <div class="actions" style="justify-content:center"><button class="btn primary" id="startDial">Iniciar discagem 3x</button><button class="btn bad" id="stopDial" disabled>Encerrar bloco</button></div>
+              <div class="notice" style="margin-top:16px">Toda tentativa cria uma <b>Interaction</b>, mesmo sem conexão. Caixa postal não conta como conversa humana. Dois atendimentos simultâneos geram registro explícito de abandono.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Contexto ao conectar</h2><span class="tag ok" id="contextState">cacheado</span></div>
+            <div class="pad stack">
+              <div class="split"><div class="person"><div class="initial">AM</div><div><b>Ana Martins</b><span>Head de RH · Grupo Atlas</span></div></div><span class="tag">Decisor alto</span></div>
+              <div class="context-fact"><b>O que a empresa faz</b><p>Grupo de serviços empresariais com operação nacional e aproximadamente 1.800 colaboradores.</p><div class="source">Fonte: site institucional · dado público de Account</div></div>
+              <div class="context-fact"><b>Gancho</b><p>Expansão recente do time comercial e vagas abertas para SDR/BDR indicam pressão por geração de pipeline.</p><div class="source">Fonte: página de carreiras · atualizado há 3 dias</div></div>
+              <div class="context-fact"><b>Histórico do tenant</b><p>Ligação sem contato em 14/08 · convite LinkedIn enviado em 15/08.</p><div class="source">Fonte: Interactions do workspace Comitai</div></div>
+              <div class="grid two">
+                <div class="context-fact"><b>Objeção provável</b><p>“Já usamos Apollo.”</p><div class="source">Resposta: separar dado de contato de execução multicanal.</div></div>
+                <div class="context-fact"><b>Objeção provável</b><p>“Nosso time não liga muito.”</p><div class="source">Resposta: medir conversa/dia e custo por conversa antes de escalar.</div></div>
+              </div>
+              <div id="outcomeBox" style="opacity:.45;pointer-events:none">
+                <div class="split" style="margin:4px 0 8px"><b style="font-size:12px">Outcome obrigatório</b><span class="small-note">1 toque</span></div>
+                <div class="outcomes">
+                  <button class="outcome" data-outcome="sem_contato">Sem contato</button>
+                  <button class="outcome" data-outcome="caixa_postal">Caixa postal</button>
+                  <button class="outcome" data-outcome="conversou_sem_avanco">Conversou · sem avanço</button>
+                  <button class="outcome" data-outcome="objecao_qualificada">Objeção qualificada</button>
+                  <button class="outcome" data-outcome="callback_agendado">Callback agendado</button>
+                  <button class="outcome" data-outcome="reuniao_marcada">Reunião marcada</button>
+                  <button class="outcome" data-outcome="numero_invalido">Número inválido</button>
+                  <button class="outcome" data-outcome="nao_e_decisor">Não é decisor</button>
+                </div>
+                <button class="btn primary" id="saveOutcome" disabled style="width:100%;margin-top:10px">Registrar outcome e próxima tentativa</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INBOX -->
+      <section class="page" id="inbox">
+        <div class="head"><div><h1>Inbox unificada</h1><div class="sub">Conversas organizadas por pessoa, não por número ou canal.</div></div><div class="actions"><button class="btn">Filtros</button><button class="btn">Só não lidas</button></div></div>
+        <div class="card inbox">
+          <div class="threads">
+            <div class="card-head"><h3>Conversas</h3><span class="tag">3 novas</span></div>
+            <div class="thread active" data-person="rafael"><div class="split"><div class="person"><div class="initial">RC</div><div><b>Rafael Costa</b><span>NovaLog</span></div></div><span class="meta">12 min</span></div><div class="preview">WA · “Pode me chamar quinta depois das 14h?”</div></div>
+            <div class="thread" data-person="joao"><div class="split"><div class="person"><div class="initial">JM</div><div><b>João Melo</b><span>FitPay</span></div></div><span class="meta">1h</span></div><div class="preview">in · aceitou sua conexão</div></div>
+            <div class="thread" data-person="ana"><div class="split"><div class="person"><div class="initial">AM</div><div><b>Ana Martins</b><span>Grupo Atlas</span></div></div><span class="meta">ontem</span></div><div class="preview">☎ · sem contato</div></div>
+          </div>
+          <div class="conversation">
+            <div class="conv-head"><div class="split"><div class="person"><div class="initial" id="convInitial">RC</div><div><b id="convName">Rafael Costa</b><span id="convCompany">NovaLog · Diretor Comercial</span></div></div><div class="actions"><span class="tag ok" id="sequenceTag">Cadência pausada</span><button class="btn small">Ver perfil</button></div></div></div>
+            <div class="messages" id="messages">
+              <div class="msg me">Oi Rafael, Lucas aqui da Comitai. Tentei te ligar mais cedo porque queria entender como vocês estão estruturando outbound na NovaLog.<small>WhatsApp · 09:18</small></div>
+              <div class="msg them">Oi! Estou entrando em reunião. Pode me chamar quinta depois das 14h?<small>WhatsApp · 09:26</small></div>
+              <div class="notice"><b>Sugestão detectada:</b> criar callback para quinta após 14h. A resposta já retirou Rafael das tentativas automáticas dos outros canais.</div>
+            </div>
+            <div class="composer">
+              <div class="composer-row"><select id="composerChannel"><option>WhatsApp</option><option>LinkedIn</option></select><input id="messageInput" placeholder="Escreva uma resposta manual..."><button class="btn primary" id="sendMessage">Enviar</button></div>
+              <div class="split" style="margin-top:7px"><span class="small-note">Nenhuma resposta automática na V0.</span><button class="btn small" id="createCallback">+ Criar callback quinta 14h</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACCOUNTS -->
+      <section class="page" id="accounts">
+        <div class="head"><div><h1>Accounts</h1><div class="sub">Contexto de IA é pesquisado e cacheado no nível da conta.</div></div><div class="actions"><button class="btn" id="importAccounts">Importar CSV</button><button class="btn primary" id="newAccount">+ Nova account</button></div></div>
+        <div class="card">
+          <table class="table">
+            <thead><tr><th>Conta</th><th>Segmento</th><th>Prospects</th><th>Contexto IA</th><th>Última interação</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr class="clickable"><td><b>Grupo Atlas</b><div class="sub">atlas.com.br</div></td><td>Serviços B2B</td><td>4</td><td><span class="tag ok">Cache ativo</span></td><td>Hoje · Ligação</td><td>Em cadência</td></tr>
+              <tr class="clickable"><td><b>NovaLog</b><div class="sub">novalog.com.br</div></td><td>Logística</td><td>3</td><td><span class="tag ok">Cache ativo</span></td><td>Hoje · WhatsApp</td><td><span class="tag warn">Resposta recebida</span></td></tr>
+              <tr class="clickable"><td><b>FitPay</b><div class="sub">fitpay.com.br</div></td><td>Fintech</td><td>5</td><td><span class="tag info">Atualizar notícia</span></td><td>Ontem · LinkedIn</td><td>Em cadência</td></tr>
+              <tr class="clickable"><td><b>Solaris Tech</b><div class="sub">solaristech.com.br</div></td><td>SaaS</td><td>2</td><td><span class="tag">Não pesquisado</span></td><td>—</td><td>Nova</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PEOPLE -->
+      <section class="page" id="people">
+        <div class="head"><div><h1>Prospects</h1><div class="sub">Person é a entidade central; telefone, e‑mail e LinkedIn são identificadores.</div></div><div class="actions"><button class="btn">Deduplicação</button><button class="btn primary" id="newPerson">+ Novo prospect</button></div></div>
+        <div class="card">
+          <table class="table">
+            <thead><tr><th>Prospect</th><th>Conta</th><th>Identificadores</th><th>Nível de decisão</th><th>Cadência</th><th>Último outcome</th></tr></thead>
+            <tbody>
+              <tr><td><div class="person"><div class="initial">AM</div><div><b>Ana Martins</b><span>Head de RH</span></div></div></td><td>Grupo Atlas</td><td>☎ · @ · in</td><td>Alto</td><td><span class="tag info">Outbound RH #1</span></td><td>Sem contato</td></tr>
+              <tr><td><div class="person"><div class="initial">RC</div><div><b>Rafael Costa</b><span>Diretor Comercial</span></div></div></td><td>NovaLog</td><td>☎ · WA · @ · in</td><td>Alto</td><td><span class="tag warn">Pausada</span></td><td>Callback agendado</td></tr>
+              <tr><td><div class="person"><div class="initial">JM</div><div><b>João Melo</b><span>VP Sales</span></div></div></td><td>FitPay</td><td>☎ · @ · in</td><td>Alto</td><td><span class="tag info">Outbound SaaS</span></td><td>Convite aceito</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SEQUENCES -->
+      <section class="page" id="sequences">
+        <div class="head"><div><h1>Cadências</h1><div class="sub">Baixa fidelidade: gestão de tentativas e remoção imediata quando há resposta.</div></div><button class="btn primary" id="newSequence">+ Nova cadência</button></div>
+        <div class="grid three">
+          <div class="card pad"><div class="split"><div><b>Outbound RH #1</b><div class="sub">72 pessoas</div></div><span class="tag ok">Ativa</span></div><div class="timeline" style="margin-top:16px"><div class="event"><time>D0</time><div>☎ Bloco de ligação</div></div><div class="event"><time>D1</time><div>in Convite manual</div></div><div class="event"><time>D3</time><div>☎ Nova tentativa</div></div><div class="event"><time>D5</time><div>WA Ação manual</div></div></div></div>
+          <div class="card pad"><div class="split"><div><b>Outbound SaaS</b><div class="sub">41 pessoas</div></div><span class="tag ok">Ativa</span></div><div class="timeline" style="margin-top:16px"><div class="event"><time>D0</time><div>in Visita + convite manual</div></div><div class="event"><time>D1</time><div>☎ Bloco de ligação</div></div><div class="event"><time>D4</time><div>WA Ação manual</div></div></div></div>
+          <div class="card pad"><div class="split"><div><b>Regra transversal</b><div class="sub">vale para todos os canais</div></div><span class="tag info">Core</span></div><div class="notice" style="margin-top:16px">Se a pessoa responder em qualquer canal, ela sai imediatamente de toda tentativa automática de outro canal.</div><div class="small-note" style="margin-top:9px">Na V0, WhatsApp e LinkedIn continuam manuais; a regra impede que o dialer continue insistindo após resposta.</div></div>
+        </div>
+      </section>
+
+      <!-- METRICS -->
+      <section class="page" id="metrics">
+        <div class="head"><div><h1>Performance</h1><div class="sub">Métrica principal: conversas humanas por BDR por dia.</div></div><div class="actions"><button class="btn">Últimos 14 dias</button><button class="btn">Por BDR</button></div></div>
+        <div class="grid kpis">
+          <div class="card kpi"><div class="label">Conversas / dia</div><div class="value">18,4</div><div class="delta">Baseline 12,9</div></div>
+          <div class="card kpi"><div class="label">Tentativas / dia</div><div class="value">91</div><div class="delta">Baseline 54</div></div>
+          <div class="card kpi"><div class="label">Conversa → reunião</div><div class="value">14,1%</div><div class="delta bad">−7% relativo</div></div>
+          <div class="card kpi"><div class="label">Custo / conversa</div><div class="value">R$ 14,80</div><div class="delta">−18%</div></div>
+        </div>
+        <div class="grid two" style="margin-top:14px">
+          <div class="card"><div class="card-head"><h2>Conversas humanas por dia</h2><span class="tag info">vs baseline</span></div><div class="pad"><div class="chart"><svg viewBox="0 0 600 170" preserveAspectRatio="none"><polyline fill="none" stroke="#9aa1ad" stroke-width="2" stroke-dasharray="5 5" points="0,130 60,125 120,126 180,118 240,120 300,113 360,111 420,109 480,106 540,105 600,101"/><polyline fill="none" stroke="#222831" stroke-width="3" points="0,132 60,120 120,112 180,86 240,96 300,78 360,66 420,70 480,50 540,42 600,34"/></svg></div><div class="split"><span class="small-note">— Atual</span><span class="small-note">--- Baseline pré‑Dial</span></div></div></div>
+          <div class="card"><div class="card-head"><h2>Guardrails</h2></div><div class="pad">
+            <div class="health"><div><b>Queda conversa → reunião</b><div class="sub">limite inicial: −15% relativo</div></div><span class="tag ok">−7%</span></div>
+            <div class="health"><div><b>Abandono de chamada</b><div class="sub">2+ atendimentos simultâneos</div></div><span class="tag warn">2,1%</span></div>
+            <div class="health"><div><b>LinkedIn ações / limite</b><div class="sub">guardrail diário</div></div><span class="tag warn">62%</span></div>
+            <div class="health"><div><b>Opt-outs processados</b><div class="sub">pausa imediata</div></div><span class="tag ok">100%</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- HEALTH -->
+      <section class="page" id="health">
+        <div class="head"><div><h1>Saúde dos canais</h1><div class="sub">Abandono, limites e integrações como métricas de primeira classe.</div></div><button class="btn">Atualizar status</button></div>
+        <div class="grid three">
+          <div class="card pad"><div class="split"><div class="left person"><div class="channel-icon">☎</div><div><b>Voz / Twilio</b><span>+55 11 4040‑2026</span></div></div><span class="tag ok">Online</span></div><div style="margin-top:16px" class="stack"><div class="split"><span class="sub">Abandono hoje</span><b>2,1%</b></div><div class="bar"><i style="width:21%"></i></div><div class="split"><span class="sub">Paralelismo</span><b>3x / teto 3x</b></div><div class="small-note">Teto do workspace não é editável pelo BDR.</div></div></div>
+          <div class="card pad"><div class="split"><div class="left person"><div class="channel-icon">WA</div><div><b>WhatsApp</b><span>+55 11 98888‑0101</span></div></div><span class="tag ok">Conectado</span></div><div style="margin-top:16px" class="stack"><div class="split"><span class="sub">Mensagens recebidas</span><b>27</b></div><div class="split"><span class="sub">Opt-outs</span><b>1</b></div><div class="split"><span class="sub">Automação de envio</span><b>Desativada</b></div><div class="small-note">Toda resposta permanece associada à Person.</div></div></div>
+          <div class="card pad"><div class="split"><div class="left person"><div class="channel-icon">in</div><div><b>LinkedIn</b><span>Marilia Souza</span></div></div><span class="tag warn">Atenção</span></div><div style="margin-top:16px" class="stack"><div class="split"><span class="sub">Ações usadas hoje</span><b>62%</b></div><div class="bar"><i style="width:62%"></i></div><div class="split"><span class="sub">Convites pendentes &gt;10d</span><b>4</b></div><button class="btn small" id="withdrawInvites">Executar retirada simulada</button><div class="small-note">Envio continua manual e sujeito a hard limits.</div></div></div>
+        </div>
+        <div class="card" style="margin-top:14px"><div class="card-head"><h2>Eventos de risco</h2></div><table class="table"><thead><tr><th>Hora</th><th>Canal</th><th>Evento</th><th>Ação</th></tr></thead><tbody><tr><td>10:42</td><td>☎</td><td>2 atendimentos simultâneos</td><td>1 conexão + 1 abandono registrado</td></tr><tr><td>09:26</td><td>WA</td><td>Resposta de Rafael Costa</td><td>Removido da fila de discagem</td></tr><tr><td>08:05</td><td>in</td><td>62% do limite diário</td><td>Sem bloqueio; apenas monitoramento</td></tr></tbody></table></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" id="settings">
+        <div class="head"><div><h1>Workspace</h1><div class="sub">Configurações de founder/gestor. BDR não altera guardrails.</div></div><button class="btn primary" id="saveSettings">Salvar alterações</button></div>
+        <div class="grid two">
+          <div class="card"><div class="card-head"><h2>Operação</h2></div><div class="pad">
+            <div class="field"><label>Tenant</label><input value="comitai-internal" disabled></div>
+            <div class="field"><label>Teto de paralelismo</label><select id="parallelism"><option>2 linhas</option><option selected>3 linhas</option><option>4 linhas</option><option>5 linhas</option></select></div>
+            <div class="field"><label>Horário comercial do tenant</label><div class="grid two"><input value="08:30"><input value="18:00"></div></div>
+            <div class="field"><label>Fuso</label><select><option>America/Sao_Paulo</option></select></div>
+          </div></div>
+          <div class="card"><div class="card-head"><h2>Segurança e compliance</h2></div><div class="pad stack">
+            <div class="notice"><b>RLS obrigatório:</b> Person, Account, Interaction e canais isolados por tenant.</div>
+            <div class="notice"><b>Idempotência:</b> reentrega de webhook não duplica chamada ou mensagem.</div>
+            <div class="notice"><b>LGPD:</b> exportação, exclusão e opt-out previstos desde a V0.</div>
+            <div class="notice"><b>IA:</b> contexto de Account cacheado; sem LLM em loop sem teto.</div>
+          </div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="modal">
+  <div class="modal-card">
+    <div class="modal-head"><b id="modalTitle">Novo item</b><button class="btn small" id="closeModal">Fechar</button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const state={
+  attempts:94, conversations:18, dialing:false, connected:false, selectedOutcome:null,
+  currentPerson:'rafael'
+};
+
+function toast(msg){
+  const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2800);
+}
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelector(`.nav[data-page="${id}"]`)?.classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+document.querySelectorAll('.goto').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.go)));
+
+const start=document.getElementById('startDial'), stop=document.getElementById('stopDial');
+const title=document.getElementById('dialTitle'), sub=document.getElementById('dialSub'), pulse=document.getElementById('pulse');
+const lines=[1,2,3].map(i=>document.getElementById('line'+i));
+start.addEventListener('click',()=>{
+  if(state.dialing) return;
+  state.dialing=true; state.connected=false; state.selectedOutcome=null;
+  start.disabled=true; stop.disabled=false;
+  title.textContent='Discando 3 contatos em paralelo…'; sub.textContent='Aguardando atendimento humano.';
+  pulse.textContent='···'; lines[0].textContent='Chamando';lines[1].textContent='Chamando';lines[2].textContent='Chamando';
+  setTimeout(()=>{ if(!state.dialing)return; lines[1].textContent='Caixa postal'; state.attempts++; document.getElementById('kpiAttempts').textContent=state.attempts; },700);
+  setTimeout(()=>{ if(!state.dialing)return; lines[2].textContent='Sem resposta'; state.attempts++; document.getElementById('kpiAttempts').textContent=state.attempts; },1200);
+  setTimeout(()=>{
+    if(!state.dialing)return; state.connected=true; lines[0].textContent='ATENDEU'; state.attempts++; state.conversations++;
+    document.getElementById('kpiAttempts').textContent=state.attempts; document.getElementById('kpiConversations').textContent=state.conversations;
+    title.textContent='Conectado com Ana Martins'; sub.textContent='Grupo Atlas · Head de RH';
+    pulse.textContent='AM'; document.getElementById('outcomeBox').style.opacity='1';document.getElementById('outcomeBox').style.pointerEvents='auto';
+    toast('Atendimento humano detectado. Contexto exibido e outras linhas encerradas.');
+  },1900);
+});
+stop.addEventListener('click',()=>{
+  state.dialing=false;start.disabled=false;stop.disabled=true;state.connected=false;
+  title.textContent='Bloco encerrado';sub.textContent='Você pode reiniciar quando quiser.';pulse.textContent='☎';lines.forEach(x=>x.textContent='Aguardando');
+  document.getElementById('outcomeBox').style.opacity='.45';document.getElementById('outcomeBox').style.pointerEvents='none';
+});
+document.querySelectorAll('.outcome').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.outcome').forEach(x=>x.classList.remove('selected')); b.classList.add('selected');
+  state.selectedOutcome=b.dataset.outcome; document.getElementById('saveOutcome').disabled=false;
+}));
+document.getElementById('saveOutcome').addEventListener('click',()=>{
+  if(!state.selectedOutcome)return;
+  toast('Outcome registrado: '+state.selectedOutcome.replaceAll('_',' ')+'. Próxima tentativa iniciada.');
+  state.selectedOutcome=null; document.querySelectorAll('.outcome').forEach(x=>x.classList.remove('selected'));
+  document.getElementById('saveOutcome').disabled=true;
+  title.textContent='Preparando próxima tentativa…'; sub.textContent='Interaction salva no histórico da Person.';
+  setTimeout(()=>{title.textContent='Discando 3 contatos em paralelo…';sub.textContent='Aguardando atendimento humano.';lines.forEach(x=>x.textContent='Chamando');pulse.textContent='···';},900);
+});
+
+const personData={
+  rafael:{initial:'RC',name:'Rafael Costa',company:'NovaLog · Diretor Comercial',paused:true,messages:[
+    ['me','Oi Rafael, Lucas aqui da Comitai. Tentei te ligar mais cedo porque queria entender como vocês estão estruturando outbound na NovaLog.','WhatsApp · 09:18'],
+    ['them','Oi! Estou entrando em reunião. Pode me chamar quinta depois das 14h?','WhatsApp · 09:26']
+  ],notice:'Sugestão detectada: criar callback para quinta após 14h. A resposta já retirou Rafael das tentativas automáticas dos outros canais.'},
+  joao:{initial:'JM',name:'João Melo',company:'FitPay · VP Sales',paused:false,messages:[
+    ['me','João, te mandei convite porque vi que vocês estão expandindo o time comercial.','LinkedIn · ontem 16:40'],
+    ['them','Conexão aceita','LinkedIn · hoje 08:11']
+  ],notice:'Próxima ação sugerida: mensagem manual no LinkedIn. Nenhum envio será feito automaticamente.'},
+  ana:{initial:'AM',name:'Ana Martins',company:'Grupo Atlas · Head de RH',paused:false,messages:[
+    ['me','Tentativa de ligação sem contato.','Telefone · ontem 15:17']
+  ],notice:'Ana segue ativa na fila porque ainda não houve resposta humana em nenhum canal.'}
+};
+function renderConversation(key){
+  state.currentPerson=key; const p=personData[key];
+  document.getElementById('convInitial').textContent=p.initial;document.getElementById('convName').textContent=p.name;document.getElementById('convCompany').textContent=p.company;
+  const tag=document.getElementById('sequenceTag'); tag.textContent=p.paused?'Cadência pausada':'Em cadência';tag.className='tag '+(p.paused?'ok':'info');
+  const box=document.getElementById('messages');box.innerHTML='';
+  p.messages.forEach(m=>{const d=document.createElement('div');d.className='msg '+m[0];d.innerHTML=m[1]+'<small>'+m[2]+'</small>';box.appendChild(d)});
+  const n=document.createElement('div');n.className='notice';n.innerHTML='<b>Contexto:</b> '+p.notice;box.appendChild(n);
+}
+document.querySelectorAll('.thread').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.thread').forEach(x=>x.classList.remove('active'));t.classList.add('active');renderConversation(t.dataset.person);
+}));
+document.getElementById('sendMessage').addEventListener('click',()=>{
+  const input=document.getElementById('messageInput'); if(!input.value.trim()) return;
+  const p=personData[state.currentPerson], ch=document.getElementById('composerChannel').value;
+  p.messages.push(['me',input.value.trim(),ch+' · agora']);input.value='';renderConversation(state.currentPerson);
+  toast('Mensagem enviada manualmente via '+ch+' (simulação).');
+});
+document.getElementById('createCallback').addEventListener('click',()=>toast('Callback criado para quinta-feira às 14h (simulação).'));
+
+function openModal(title,body){
+  document.getElementById('modalTitle').textContent=title;document.getElementById('modalBody').innerHTML=body;document.getElementById('modal').classList.add('show');
+}
+document.getElementById('closeModal').addEventListener('click',()=>document.getElementById('modal').classList.remove('show'));
+document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')e.currentTarget.classList.remove('show')});
+
+document.getElementById('newAccount').addEventListener('click',()=>openModal('Nova account',`
+  <div class="field"><label>Nome da empresa</label><input placeholder="Ex.: Acme Brasil"></div>
+  <div class="field"><label>Domínio</label><input placeholder="acme.com.br"></div>
+  <div class="field"><label>Segmento</label><input placeholder="SaaS, Logística..."></div>
+  <div class="notice">A Account nasce desde o dia 1 e centraliza o contexto público reutilizável entre seus prospects.</div>
+  <button class="btn primary" style="width:100%;margin-top:12px" onclick="document.getElementById('modal').classList.remove('show');toast('Account criada (simulação).')">Criar account</button>
+`));
+document.getElementById('newPerson').addEventListener('click',()=>openModal('Novo prospect',`
+  <div class="grid two"><div class="field"><label>Primeiro nome</label><input></div><div class="field"><label>Sobrenome</label><input></div></div>
+  <div class="field"><label>Account</label><select><option>Grupo Atlas</option><option>NovaLog</option><option>FitPay</option></select></div>
+  <div class="grid two"><div class="field"><label>Telefone</label><input></div><div class="field"><label>E-mail</label><input></div></div>
+  <div class="field"><label>LinkedIn</label><input></div>
+  <button class="btn primary" style="width:100%" onclick="document.getElementById('modal').classList.remove('show');toast('Prospect criado e associado a uma Account.')">Criar prospect</button>
+`));
+document.getElementById('newSequence').addEventListener('click',()=>openModal('Nova cadência',`
+  <div class="field"><label>Nome</label><input value="Nova cadência multicanal"></div>
+  <div class="notice">No protótipo, WhatsApp e LinkedIn são ações manuais. O Dialer pode executar a fila de tentativas, respeitando a pausa por resposta.</div>
+  <button class="btn primary" style="width:100%;margin-top:12px" onclick="document.getElementById('modal').classList.remove('show');toast('Cadência criada (simulação).')">Criar cadência</button>
+`));
+document.getElementById('changeListBtn').addEventListener('click',()=>toast('Seletor de listas aberto (simulação).'));
+document.getElementById('importAccounts').addEventListener('click',()=>toast('Importação CSV simulada.'));
+document.getElementById('withdrawInvites').addEventListener('click',e=>{e.target.disabled=true;e.target.textContent='Retirada concluída';toast('4 convites com mais de 10 dias retirados (simulação).')});
+document.getElementById('saveSettings').addEventListener('click',()=>{
+  const v=document.getElementById('parallelism').value;document.getElementById('dialMode').textContent='Paralelismo: '+v.replace(' linhas','x');toast('Configurações salvas (simulação).');
+});
+</script>
+</body>
+</html>
