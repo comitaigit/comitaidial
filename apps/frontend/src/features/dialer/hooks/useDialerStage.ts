@@ -1,92 +1,87 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { DialerBlockData } from "@/features/dialer/data/dialer";
+import { useCallback, useEffect, useState } from "react";
+import { useSessionStore } from "@/features/shell/stores/session-store";
+import { useSoftphone } from "@/features/dialer/hooks/useSoftphone";
+import {
+  type CallablePerson,
+  getLatestCallForPerson,
+  listCallablePeople,
+} from "@/features/dialer/data/dialer-api";
 
-type LineState = "Aguardando" | "Chamando" | "Caixa postal" | "Sem resposta" | "ATENDEU";
+// Drives the single-call Dialer stage: loads the queue of callable
+// prospects, owns which one is "current," and — once a call the softphone
+// placed ends — looks up the Call the /calls/voice webhook already
+// persisted so the outcome picker has something to PATCH.
+export function useDialerStage() {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  const softphone = useSoftphone();
 
-const IDLE_LINES: LineState[] = ["Aguardando", "Aguardando", "Aguardando"];
-const CALLING_LINES: LineState[] = ["Chamando", "Chamando", "Chamando"];
+  const [people, setPeople] = useState<CallablePerson[]>([]);
+  const [peopleStatus, setPeopleStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [calledPersonId, setCalledPersonId] = useState<string | null>(null);
+  const [activeCallId, setActiveCallId] = useState<string | null>(null);
+  const [awaitingOutcome, setAwaitingOutcome] = useState(false);
 
-export function useDialerStage(block: DialerBlockData) {
-  const [dialing, setDialing] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [lines, setLines] = useState<LineState[]>(IDLE_LINES);
-  const [title, setTitle] = useState("Pronto para iniciar");
-  const [subtitle, setSubtitle] = useState(
-    "O sistema irá abrir até 3 linhas e conectar você ao primeiro atendimento humano."
-  );
-  const [pulse, setPulse] = useState("☎");
-  const timeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    listCallablePeople(accessToken)
+      .then((all) => {
+        if (cancelled) return;
+        setPeople(all.filter((person) => person.phone));
+        setPeopleStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setPeopleStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
-  function clearTimers() {
-    timeouts.current.forEach(clearTimeout);
-    timeouts.current = [];
-  }
+  const currentPerson = people[currentIndex] ?? null;
 
-  function startDial() {
-    if (dialing) return;
-    clearTimers();
-    setDialing(true);
-    setConnected(false);
-    setLines(CALLING_LINES);
-    setTitle("Discando 3 contatos em paralelo…");
-    setSubtitle("Aguardando atendimento humano.");
-    setPulse("···");
+  useEffect(() => {
+    if (softphone.lastDurationSeconds === null || !calledPersonId || !accessToken) return;
+    let cancelled = false;
+    getLatestCallForPerson(calledPersonId, accessToken).then((call) => {
+      if (cancelled || !call) return;
+      setActiveCallId(call.id);
+      setAwaitingOutcome(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new call actually ends
+  }, [softphone.lastDurationSeconds]);
 
-    timeouts.current.push(
-      setTimeout(() => {
-        setLines((prev) => ["Chamando", "Caixa postal", prev[2]]);
-      }, 700)
-    );
-    timeouts.current.push(
-      setTimeout(() => {
-        setLines((prev) => [prev[0], prev[1], "Sem resposta"]);
-      }, 1200)
-    );
-    timeouts.current.push(
-      setTimeout(() => {
-        setConnected(true);
-        setLines((prev) => ["ATENDEU", prev[1], prev[2]]);
-        setTitle(`Conectado com ${block.currentContact.name}`);
-        setSubtitle(`${block.currentContact.account} · ${block.currentContact.role}`);
-        setPulse(block.currentContact.initials);
-      }, 1900)
-    );
-  }
+  const startCall = useCallback(() => {
+    if (!currentPerson?.phone) return;
+    setCalledPersonId(currentPerson.id);
+    setActiveCallId(null);
+    setAwaitingOutcome(false);
+    void softphone.call(currentPerson.phone, currentPerson.id);
+  }, [currentPerson, softphone]);
 
-  function stopDial() {
-    clearTimers();
-    setDialing(false);
-    setConnected(false);
-    setTitle("Bloco encerrado");
-    setSubtitle("Você pode reiniciar quando quiser.");
-    setPulse("☎");
-    setLines(IDLE_LINES);
-  }
-
-  function handleOutcomeSaved() {
-    setTitle("Preparando próxima tentativa…");
-    setSubtitle("Interaction salva no histórico da Person.");
-    timeouts.current.push(
-      setTimeout(() => {
-        setTitle("Discando 3 contatos em paralelo…");
-        setSubtitle("Aguardando atendimento humano.");
-        setLines(CALLING_LINES);
-        setPulse("···");
-      }, 900)
-    );
-  }
+  const advanceToNext = useCallback(() => {
+    setAwaitingOutcome(false);
+    setActiveCallId(null);
+    setCalledPersonId(null);
+    setCurrentIndex((index) => (index + 1 < people.length ? index + 1 : index));
+  }, [people.length]);
 
   return {
-    dialing,
-    connected,
-    lines,
-    title,
-    subtitle,
-    pulse,
-    startDial,
-    stopDial,
-    handleOutcomeSaved,
+    softphone,
+    peopleStatus,
+    currentPerson,
+    contactsRemaining: Math.max(people.length - currentIndex, 0),
+    activeCallId,
+    lastDurationSeconds: softphone.lastDurationSeconds,
+    awaitingOutcome,
+    startCall,
+    hangup: softphone.hangup,
+    advanceToNext,
   };
 }

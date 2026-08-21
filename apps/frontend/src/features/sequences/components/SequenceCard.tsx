@@ -1,26 +1,25 @@
 import { Card } from "@/components/ui/Card";
 import { Tag } from "@/components/ui/Tag";
-import type { Sequence } from "@/features/sequences/data/sequences";
+import type { Cadence } from "@/features/sequences/data/cadences-api";
 
-export function SequenceCard({ sequence }: { sequence: Sequence }) {
+export function SequenceCard({ sequence }: { sequence: Cadence }) {
   return (
     <Card padded>
       <div className="flex items-center justify-between">
         <div>
           <b>{sequence.name}</b>
           <div className="text-[13px] text-muted">
-            {sequence.peopleCount} pessoas
+            {sequence._count.enrollments} pessoas
           </div>
         </div>
-        <Tag variant="ok">Ativa</Tag>
+        <Tag variant={sequence.active ? "ok" : "default"}>
+          {sequence.active ? "Ativa" : "Pausada"}
+        </Tag>
       </div>
-      <div className="mt-4 grid gap-2">
-        {sequence.events.map((event) => (
-          <div key={event.day} className="grid grid-cols-[80px_1fr] gap-2.5 text-xs">
-            <time className="text-muted">{event.day}</time>
-            <div>{event.label}</div>
-          </div>
-        ))}
+      <div className="mt-4 text-xs text-muted">
+        {sequence._count.steps === 0
+          ? "Nenhum step configurado ainda"
+          : `${sequence._count.steps} step${sequence._count.steps > 1 ? "s" : ""} configurado${sequence._count.steps > 1 ? "s" : ""}`}
       </div>
     </Card>
   );

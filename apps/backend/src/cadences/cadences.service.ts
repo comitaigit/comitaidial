@@ -1,0 +1,93 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ActivityType,
+  Cadence,
+  CadenceEnrollment,
+  CadenceStep,
+} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateCadenceDto } from './dto/create-cadence.dto';
+import { CreateCadenceStepDto } from './dto/create-cadence-step.dto';
+import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
+
+@Injectable()
+export class CadencesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  findAll() {
+    return this.prisma.cadence.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { steps: true, enrollments: true } } },
+    });
+  }
+
+  async findOne(id: string) {
+    const cadence = await this.prisma.cadence.findUnique({
+      where: { id },
+      include: { steps: { orderBy: { order: 'asc' } } },
+    });
+    if (!cadence) throw new NotFoundException('Cadence not found.');
+    return cadence;
+  }
+
+  // Template setup, not a per-contact action — doesn't need an Activity
+  // audit record (see cadences/steps' schema.prisma comment: the audit
+  // rule covers actions taken on a Person/Account, not sequence authoring).
+  create(dto: CreateCadenceDto): Promise<Cadence> {
+    return this.prisma.cadence.create({ data: dto });
+  }
+
+  async addStep(
+    cadenceId: string,
+    dto: CreateCadenceStepDto,
+  ): Promise<CadenceStep> {
+    const cadence = await this.prisma.cadence.findUnique({
+      where: { id: cadenceId },
+    });
+    if (!cadence) throw new NotFoundException('Cadence not found.');
+
+    const order = await this.prisma.cadenceStep.count({ where: { cadenceId } });
+    return this.prisma.cadenceStep.create({
+      data: { ...dto, cadenceId, order },
+    });
+  }
+
+  // Enrolling a Person is a per-contact action ("mover em cadência") — the
+  // Activity record is written in the same transaction as the enrollment,
+  // same pattern as AccountsService/PeopleService.
+  async enroll(
+    cadenceId: string,
+    dto: CreateEnrollmentDto,
+    userId: string,
+  ): Promise<CadenceEnrollment> {
+    return this.prisma.$transaction(async (tx) => {
+      const cadence = await tx.cadence.findUnique({ where: { id: cadenceId } });
+      if (!cadence) throw new NotFoundException('Cadence not found.');
+      if (!cadence.active)
+        throw new BadRequestException('Cadence is not active.');
+
+      const person = await tx.person.findUnique({
+        where: { id: dto.personId },
+      });
+      if (!person) throw new NotFoundException('Person not found.');
+
+      const enrollment = await tx.cadenceEnrollment.create({
+        data: { cadenceId, personId: dto.personId },
+      });
+      await tx.activity.create({
+        data: {
+          type: ActivityType.CADENCE_STEP_ADVANCED,
+          accountId: person.accountId,
+          personId: person.id,
+          userId,
+          payload: { cadenceId, cadenceName: cadence.name, stepOrder: 0 },
+        },
+      });
+      return enrollment;
+    });
+  }
+}
