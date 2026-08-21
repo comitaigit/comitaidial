@@ -66,6 +66,21 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   COOKIE_DOMAIN?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_ACCOUNT_SID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_AUTH_TOKEN!: string;
+
+  // The caller ID used as `From` on outbound calls — either a Twilio-owned
+  // number or a Verified Caller ID under the account. Must be in E.164
+  // format (e.g. +5511958028794).
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_PHONE_NUMBER!: string;
 }
 
 /**
