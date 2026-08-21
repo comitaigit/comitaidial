@@ -1,0 +1,43 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import { PeopleService } from './people.service';
+import { CreatePersonDto } from './dto/create-person.dto';
+import { UpdatePersonDto } from './dto/update-person.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+
+@Controller('people')
+export class PeopleController {
+  constructor(private readonly people: PeopleService) {}
+
+  @Get()
+  findAll(@Query('accountId') accountId?: string) {
+    return this.people.findAll(accountId);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.people.findOne(id);
+  }
+
+  @Post()
+  create(@Body() dto: CreatePersonDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.people.create(dto, user.userId);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePersonDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.people.update(id, dto, user.userId);
+  }
+}
