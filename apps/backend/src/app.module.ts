@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { CallsModule } from './calls/calls.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { PeopleModule } from './people/people.module';
+import { CadencesModule } from './cadences/cadences.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -31,6 +32,7 @@ import { validateEnv } from './config/env.validation';
     CallsModule,
     AccountsModule,
     PeopleModule,
+    CadencesModule,
   ],
   controllers: [AppController],
   providers: [
