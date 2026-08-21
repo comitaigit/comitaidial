@@ -11,6 +11,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { PeopleModule } from './people/people.module';
 import { CadencesModule } from './cadences/cadences.module';
 import { SignalsModule } from './signals/signals.module';
+import { OverviewModule } from './overview/overview.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -35,6 +36,7 @@ import { validateEnv } from './config/env.validation';
     PeopleModule,
     CadencesModule,
     SignalsModule,
+    OverviewModule,
   ],
   controllers: [AppController],
   providers: [

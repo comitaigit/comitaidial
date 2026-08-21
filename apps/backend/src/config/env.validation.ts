@@ -108,6 +108,12 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   PUBLIC_API_URL!: string;
+
+  // Used to generate the Overview page's AI insight pill — see
+  // src/overview/overview.service.ts. Console → Settings → API Keys.
+  @IsString()
+  @IsNotEmpty()
+  ANTHROPIC_API_KEY!: string;
 }
 
 /**
