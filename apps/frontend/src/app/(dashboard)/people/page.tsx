@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { getPeople } from "@/features/people/data/people";
-import { PeopleTable } from "@/features/people/components/PeopleTable";
+import { PeoplePageContent } from "@/features/people/components/PeoplePageContent";
 import { NewPersonButton } from "@/features/people/components/NewPersonButton";
 
 export const metadata: Metadata = {
   title: "Prospects",
 };
 
-export default async function PeoplePage() {
-  const people = await getPeople();
-
+// Client-fetched — see accounts/page.tsx's comment: /people also requires
+// the Bearer access token, which only lives in the client-side session store.
+export default function PeoplePage() {
   return (
     <section>
       <PageHeader
@@ -24,7 +23,7 @@ export default async function PeoplePage() {
           </>
         }
       />
-      <PeopleTable people={people} />
+      <PeoplePageContent />
     </section>
   );
 }
