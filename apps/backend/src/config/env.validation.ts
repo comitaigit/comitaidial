@@ -66,6 +66,18 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   COOKIE_DOMAIN?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_ACCOUNT_SID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_AUTH_TOKEN!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_PHONE_NUMBER!: string;
 }
 
 /**
