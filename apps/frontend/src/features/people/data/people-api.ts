@@ -41,6 +41,10 @@ export type CreatePersonInput = {
 // features/accounts (feature slices don't reach into each other's internals).
 export type AccountOption = { id: string; name: string };
 
+// Same idea for Cadence — just enough to populate the "add selected
+// prospects to a cadence" picker.
+export type CadenceOption = { id: string; name: string };
+
 export class PeopleApiError extends Error {
   constructor(
     message: string,
@@ -96,4 +100,19 @@ export function createPerson(
 
 export function listAccountOptions(accessToken: string): Promise<AccountOption[]> {
   return request<AccountOption[]>("/accounts", accessToken);
+}
+
+export function listCadenceOptions(accessToken: string): Promise<CadenceOption[]> {
+  return request<CadenceOption[]>("/cadences", accessToken);
+}
+
+export function enrollPersonInCadence(
+  cadenceId: string,
+  personId: string,
+  accessToken: string,
+): Promise<unknown> {
+  return request(`/cadences/${cadenceId}/enrollments`, accessToken, {
+    method: "POST",
+    body: JSON.stringify({ personId }),
+  });
 }

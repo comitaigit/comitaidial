@@ -27,14 +27,9 @@ export const useCadencesStore = create<CadencesState>((set) => ({
       });
     }
   },
-  // A freshly created cadence has no steps/enrollments yet — the create
-  // response doesn't include _count (Prisma's plain `create` doesn't join
-  // it), so it's filled in here rather than re-fetching the whole list.
+  // The create response doesn't include _count (Prisma's plain `create`
+  // doesn't join it), so the caller fills it in (e.g. steps.length after
+  // adding drafted steps) rather than this store re-fetching the list.
   addCadence: (cadence) =>
-    set((state) => ({
-      cadences: [
-        { ...cadence, _count: { steps: 0, enrollments: 0 } },
-        ...state.cadences,
-      ],
-    })),
+    set((state) => ({ cadences: [cadence, ...state.cadences] })),
 }));

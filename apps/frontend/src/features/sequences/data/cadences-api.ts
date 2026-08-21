@@ -20,6 +20,33 @@ export type CreateCadenceInput = {
   active?: boolean;
 };
 
+export type CadenceStepType =
+  | "CALL"
+  | "AUTOMATIC_EMAIL"
+  | "MANUAL_EMAIL"
+  | "MANUAL_SMS"
+  | "WHATSAPP_MESSAGE"
+  | "ACTION_ITEM"
+  | "LINKEDIN_CONNECTION_REQUEST"
+  | "LINKEDIN_MESSAGE";
+
+export type CadenceStep = {
+  id: string;
+  cadenceId: string;
+  order: number;
+  dayOffset: number;
+  type: CadenceStepType;
+  waitForConnectionAccepted: boolean;
+  notes: string | null;
+};
+
+export type CreateCadenceStepInput = {
+  type: CadenceStepType;
+  dayOffset: number;
+  waitForConnectionAccepted?: boolean;
+  notes?: string;
+};
+
 export class CadencesApiError extends Error {
   constructor(
     message: string,
@@ -67,6 +94,17 @@ export function createCadence(
   accessToken: string,
 ): Promise<Cadence> {
   return request<Cadence>("/cadences", accessToken, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function addCadenceStep(
+  cadenceId: string,
+  input: CreateCadenceStepInput,
+  accessToken: string,
+): Promise<CadenceStep> {
+  return request<CadenceStep>(`/cadences/${cadenceId}/steps`, accessToken, {
     method: "POST",
     body: JSON.stringify(input),
   });

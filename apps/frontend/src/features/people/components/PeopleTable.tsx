@@ -23,12 +23,32 @@ function identifiersFor(person: Person): string {
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
-export function PeopleTable({ people }: { people: Person[] }) {
+export function PeopleTable({
+  people,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+}: {
+  people: Person[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
+}) {
+  const allSelected = people.length > 0 && selectedIds.size === people.length;
+
   return (
     <Card>
       <Table>
         <Thead>
           <Tr>
+            <Th>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleAll}
+                aria-label="Selecionar todos"
+              />
+            </Th>
             <Th>Prospect</Th>
             <Th>Conta</Th>
             <Th>Identificadores</Th>
@@ -38,6 +58,14 @@ export function PeopleTable({ people }: { people: Person[] }) {
         <Tbody>
           {people.map((person) => (
             <Tr key={person.id}>
+              <Td>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(person.id)}
+                  onChange={() => onToggle(person.id)}
+                  aria-label={`Selecionar ${person.name}`}
+                />
+              </Td>
               <Td>
                 <PersonAvatar
                   initials={initialsFrom(person.name)}
