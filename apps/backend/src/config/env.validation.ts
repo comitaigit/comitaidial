@@ -81,6 +81,33 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   TWILIO_PHONE_NUMBER!: string;
+
+  // API Key (not the main Auth Token) used to sign browser Voice Access
+  // Tokens — Twilio's jwt.AccessToken requires an API Key SID/Secret pair,
+  // not the account's main credentials. Create one in Console → Account →
+  // API keys & tokens.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SECRET!: string;
+
+  // The TwiML App whose Voice URL points at this backend's
+  // /v1/calls/voice webhook — see calls.controller.ts.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_TWIML_APP_SID!: string;
+
+  // This API's own public base URL (e.g. https://dev.api.comitai.app), used
+  // to reconstruct the exact URL Twilio signed when validating the /calls/voice
+  // webhook's X-Twilio-Signature — reconstructing it from request headers
+  // instead would depend on trusting proxy headers, which is fragile behind
+  // Nginx and would let a forged request bypass signature validation.
+  @IsString()
+  @IsNotEmpty()
+  PUBLIC_API_URL!: string;
 }
 
 /**
