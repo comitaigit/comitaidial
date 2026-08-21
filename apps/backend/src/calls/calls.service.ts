@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ActivityType, Call } from '@prisma/client';
+import {
+  ActivityType,
+  Call,
+  CallOutcome,
+  SignalCategory,
+} from '@prisma/client';
 import Twilio from 'twilio';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCallOutcomeDto } from './dto/update-call-outcome.dto';
@@ -9,6 +14,26 @@ import { UpdateCallOutcomeDto } from './dto/update-call-outcome.dto';
 // see apps/backend/.claude/skills/outcome-definitions (founder's rule,
 // 2026-08-20). Enforced here, not settable via the outcome picker.
 const MIN_CONVERSATION_SECONDS = 30;
+
+// Outcomes worth surfacing as an ENGAGEMENT signal on the account/person
+// timeline, most notable first — an outcome update produces at most one of
+// these (checked in this order), not one per matching condition.
+const OUTCOME_SIGNAL: Partial<
+  Record<CallOutcome, { subtype: string; summary: (name: string) => string }>
+> = {
+  MEETING_SCHEDULED: {
+    subtype: 'meeting_scheduled',
+    summary: (name) => `Reunião agendada com ${name} durante ligação.`,
+  },
+  CALLBACK_SCHEDULED: {
+    subtype: 'callback_scheduled',
+    summary: (name) => `Callback agendado com ${name} durante ligação.`,
+  },
+  QUALIFIED_OBJECTION: {
+    subtype: 'qualified_objection',
+    summary: (name) => `Objeção qualificada levantada por ${name} na ligação.`,
+  },
+};
 
 function escapeXml(value: string): string {
   return value
@@ -168,6 +193,7 @@ export class CallsService {
               ? dto.durationSeconds >= MIN_CONVERSATION_SECONDS
               : existing.isConversation,
         },
+        include: { person: { select: { name: true, accountId: true } } },
       });
       await tx.activity.create({
         data: {
@@ -177,6 +203,23 @@ export class CallsService {
           payload: { callId: call.id, outcome: call.outcome },
         },
       });
+
+      const signalTemplate = call.outcome
+        ? OUTCOME_SIGNAL[call.outcome]
+        : undefined;
+      if (signalTemplate && call.person) {
+        await tx.signal.create({
+          data: {
+            category: SignalCategory.ENGAGEMENT,
+            subtype: signalTemplate.subtype,
+            accountId: call.person.accountId,
+            personId: call.personId,
+            summary: signalTemplate.summary(call.person.name),
+            source: 'Ligação registrada no Dialer',
+          },
+        });
+      }
+
       return call;
     });
   }

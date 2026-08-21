@@ -13,6 +13,7 @@ export const OPERATION_ITEMS: NavItem[] = [
   { href: "/accounts", label: "Accounts", icon: "▤" },
   { href: "/people", label: "Prospects", icon: "◎" },
   { href: "/sequences", label: "Cadências", icon: "↻" },
+  { href: "/signals", label: "Sinais", icon: "⚡" },
 ];
 
 export const MANAGEMENT_ITEMS: NavItem[] = [
