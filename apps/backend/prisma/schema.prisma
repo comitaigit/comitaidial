@@ -40,6 +40,7 @@ model User {
 
   refreshTokens RefreshToken[]
   loginEvents   LoginEvent[]
+  activities    Activity[]
 
   @@map("users")
 }
@@ -96,4 +97,260 @@ model LoginEvent {
   @@index([userId])
   @@index([email])
   @@map("login_events")
+}
+
+// --- Domain: Accounts, Prospects, Cadences, Activities, Calls, Signals ---
+// See ../../.claude/skills/business-rules-authoring/SKILL.md for the source
+// business rules these fields encode (pain from transcript, manual priority/
+// influence, the 30s conversation rule, the parallel-dial tie-break rule).
+
+enum AccountPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model Account {
+  id      String  @id @default(uuid())
+  name    String
+  domain  String? @unique
+  segment String?
+
+  /// Manual, set by the rep — HIGH/MEDIUM/LOW ("alta"/"média"/"baixa").
+  priority AccountPriority?
+
+  /// Free text extracted from call transcripts by the AI pipeline (not yet
+  /// wired up). Null means "não mapeada" — never inferred without enough
+  /// transcript data, per the founder's rule captured 2026-08-21.
+  pain String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  people     Person[]
+  signals    Signal[]
+  activities Activity[]
+
+  @@map("accounts")
+}
+
+enum InfluenceLevel {
+  FINANCIAL_DECISION_MAKER
+  DIRECT_INFLUENCER
+  OPERATIONAL_DECISION_MAKER
+  INDIRECT_INFLUENCER
+}
+
+model Person {
+  id String @id @default(uuid())
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  name String
+  role String?
+
+  email       String?
+  phone       String?
+  linkedinUrl String?
+
+  /// Manual, set by the rep — decisor financeiro / influenciador direto /
+  /// decisor operacional / influenciador indireto.
+  influenceLevel InfluenceLevel?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadenceEnrollments CadenceEnrollment[]
+  calls              Call[]
+  activities         Activity[]
+  signals            Signal[]
+
+  @@index([accountId])
+  @@map("people")
+}
+
+enum CadenceStepType {
+  CALL
+  AUTOMATIC_EMAIL
+  MANUAL_EMAIL
+  MANUAL_SMS
+  WHATSAPP_MESSAGE
+  ACTION_ITEM
+  LINKEDIN_CONNECTION_REQUEST
+  LINKEDIN_MESSAGE
+}
+
+model Cadence {
+  id     String  @id @default(uuid())
+  name   String
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps       CadenceStep[]
+  enrollments CadenceEnrollment[]
+
+  @@map("cadences")
+}
+
+model CadenceStep {
+  id String @id @default(uuid())
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  /// Position within the cadence — steps execute in this order, not by day
+  /// offset alone (two steps can share a day offset).
+  order     Int
+  dayOffset Int
+  type      CadenceStepType
+
+  /// LinkedIn-only gating: don't advance to the next step until the
+  /// connection request is accepted (mirrors the Nooks-style builder).
+  waitForConnectionAccepted Boolean @default(false)
+
+  notes String?
+
+  @@unique([cadenceId, order])
+  @@index([cadenceId])
+  @@map("cadence_steps")
+}
+
+model CadenceEnrollment {
+  id String @id @default(uuid())
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  currentStepOrder Int     @default(0)
+  active           Boolean @default(true)
+
+  enrolledAt DateTime @default(now())
+
+  @@unique([cadenceId, personId])
+  @@index([personId])
+  @@map("cadence_enrollments")
+}
+
+enum CallOutcome {
+  NO_ANSWER
+  VOICEMAIL
+  CONVERSATION_NO_PROGRESS
+  QUALIFIED_OBJECTION
+  CALLBACK_SCHEDULED
+  MEETING_SCHEDULED
+  INVALID_NUMBER
+  NOT_DECISION_MAKER
+}
+
+model Call {
+  id String @id @default(uuid())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  /// Null for calls placed outside Twilio (e.g. manual log) — set once the
+  /// real dialer module wires this up via the Twilio Calls API.
+  twilioCallSid String? @unique
+
+  toNumber   String
+  fromNumber String
+
+  outcome CallOutcome?
+
+  durationSeconds Int?
+
+  /// True only when durationSeconds >= 30 — the "real conversation" rule.
+  /// Computed server-side on call completion, never settable by the outcome
+  /// picker in the UI (a BDR can't override it by picking a different
+  /// outcome button).
+  isConversation Boolean @default(false)
+
+  connectedAt DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([personId])
+  @@map("calls")
+}
+
+enum SignalCategory {
+  PERSON
+  COMPANY
+  ENGAGEMENT
+  AI_INTERPRETATION
+}
+
+model Signal {
+  id String @id @default(uuid())
+
+  category SignalCategory
+
+  /// e.g. "job_change", "open_roles", "call_connected", "pain_detected" —
+  /// kept as a string rather than a second enum since the Signal Engine's
+  /// subtypes are expected to grow independently of the four categories.
+  subtype String
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  summary String
+
+  /// URL for web-sourced signals, or a description like "Interactions do
+  /// workspace Comitai" for internally-generated ones — every signal must
+  /// be traceable back to where it came from.
+  source String?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([accountId])
+  @@index([personId])
+  @@map("signals")
+}
+
+enum ActivityType {
+  CALL_PLACED
+  OUTCOME_RECORDED
+  CADENCE_STEP_ADVANCED
+  FIELD_EDITED
+  EMAIL_SENT
+  WHATSAPP_MESSAGE_SENT
+  LINKEDIN_ACTION
+}
+
+/// Generic audit trail: every action taken on an Account/Person — call,
+/// outcome, cadence move, field edit — must be written here before any
+/// visual state changes on the frontend. Mirrors the login_events pattern
+/// above, generalized to domain actions instead of auth events.
+model Activity {
+  id String @id @default(uuid())
+
+  type ActivityType
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@index([personId])
+  @@index([userId])
+  @@map("activities")
 }
