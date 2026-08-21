@@ -8,6 +8,7 @@ export type NavItem = {
 export const OPERATION_ITEMS: NavItem[] = [
   { href: "/overview", label: "Visão geral", icon: "▦" },
   { href: "/dialer", label: "Dialer", icon: "☎", badge: "P0" },
+  { href: "/calls", label: "Chamadas", icon: "▥" },
   { href: "/inbox", label: "Inbox unificada", icon: "▣", badge: "3" },
   { href: "/accounts", label: "Accounts", icon: "▤" },
   { href: "/people", label: "Prospects", icon: "◎" },
