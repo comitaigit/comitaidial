@@ -251,8 +251,10 @@ enum CallOutcome {
 model Call {
   id String @id @default(uuid())
 
-  personId String
-  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// Nullable — a call isn't always tied to a known prospect yet (e.g. a
+  /// Twilio credential/caller-ID verification call placed via /calls/test).
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   /// Null for calls placed outside Twilio (e.g. manual log) — set once the
   /// real dialer module wires this up via the Twilio Calls API.
