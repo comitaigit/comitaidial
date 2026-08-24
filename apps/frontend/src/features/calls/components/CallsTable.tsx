@@ -4,25 +4,25 @@ import { Tag } from "@/components/ui/Tag";
 import type { Call, CallOutcome } from "@/features/calls/data/calls-api";
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
-  NO_ANSWER: "Sem contato",
   VOICEMAIL: "Caixa postal",
-  CONVERSATION_NO_PROGRESS: "Conversou · sem avanço",
-  QUALIFIED_OBJECTION: "Objeção qualificada",
-  CALLBACK_SCHEDULED: "Callback agendado",
-  MEETING_SCHEDULED: "Reunião marcada",
-  INVALID_NUMBER: "Número inválido",
-  NOT_DECISION_MAKER: "Não é decisor",
+  WRONG_PERSON: "Pessoa errada",
+  BUSY: "Ocupado",
+  NO_ANSWER: "Não atendeu",
+  INVALID_NUMBER: "Não existe",
+  CALLBACK_REQUESTED: "Solicitou retorno",
+  MEETING_SCHEDULED: "Agendado",
+  NOT_INTERESTED: "Sem interesse",
 };
 
 const OUTCOME_VARIANT: Record<CallOutcome, "ok" | "warn" | "bad" | "info" | "default"> = {
-  NO_ANSWER: "default",
   VOICEMAIL: "default",
-  CONVERSATION_NO_PROGRESS: "info",
-  QUALIFIED_OBJECTION: "warn",
-  CALLBACK_SCHEDULED: "info",
-  MEETING_SCHEDULED: "ok",
+  WRONG_PERSON: "bad",
+  BUSY: "default",
+  NO_ANSWER: "default",
   INVALID_NUMBER: "bad",
-  NOT_DECISION_MAKER: "bad",
+  CALLBACK_REQUESTED: "info",
+  MEETING_SCHEDULED: "ok",
+  NOT_INTERESTED: "warn",
 };
 
 function formatWhen(iso: string): string {

@@ -7,14 +7,14 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
 
 export type CallOutcome =
-  | "NO_ANSWER"
   | "VOICEMAIL"
-  | "CONVERSATION_NO_PROGRESS"
-  | "QUALIFIED_OBJECTION"
-  | "CALLBACK_SCHEDULED"
-  | "MEETING_SCHEDULED"
+  | "WRONG_PERSON"
+  | "BUSY"
+  | "NO_ANSWER"
   | "INVALID_NUMBER"
-  | "NOT_DECISION_MAKER";
+  | "CALLBACK_REQUESTED"
+  | "MEETING_SCHEDULED"
+  | "NOT_INTERESTED";
 
 export type OverviewKpis = {
   attemptsToday: number;

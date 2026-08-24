@@ -6,14 +6,14 @@ import { PersonAvatar } from "@/components/ui/PersonAvatar";
 import type { CallOutcome, WorkQueueItem } from "@/features/overview/data/overview-api";
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
-  NO_ANSWER: "Sem contato",
   VOICEMAIL: "Caixa postal",
-  CONVERSATION_NO_PROGRESS: "Conversou · sem avanço",
-  QUALIFIED_OBJECTION: "Objeção qualificada",
-  CALLBACK_SCHEDULED: "Callback agendado",
-  MEETING_SCHEDULED: "Reunião marcada",
-  INVALID_NUMBER: "Número inválido",
-  NOT_DECISION_MAKER: "Não é decisor",
+  WRONG_PERSON: "Pessoa errada",
+  BUSY: "Ocupado",
+  NO_ANSWER: "Não atendeu",
+  INVALID_NUMBER: "Não existe",
+  CALLBACK_REQUESTED: "Solicitou retorno",
+  MEETING_SCHEDULED: "Agendado",
+  NOT_INTERESTED: "Sem interesse",
 };
 
 function initialsOf(name: string): string {
@@ -31,7 +31,7 @@ export function WorkQueueCard({ items }: { items: WorkQueueItem[] }) {
       {items.length === 0 ? (
         <p className="p-4 text-sm text-muted">
           Nenhum prospect aguardando retorno agora — todas as últimas ligações
-          terminaram em reunião marcada, número inválido ou não decisor.
+          terminaram em agendado, pessoa errada, sem interesse ou não existe.
         </p>
       ) : (
         <Table>

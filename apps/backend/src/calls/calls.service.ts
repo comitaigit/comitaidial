@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import Twilio from 'twilio';
 import { PrismaService } from '../prisma/prisma.service';
+import { SuppressionService } from '../suppression/suppression.service';
 import { UpdateCallOutcomeDto } from './dto/update-call-outcome.dto';
 
 // A call only counts as a real conversation once connected for >= 30s —
@@ -25,13 +26,9 @@ const OUTCOME_SIGNAL: Partial<
     subtype: 'meeting_scheduled',
     summary: (name) => `Reunião agendada com ${name} durante ligação.`,
   },
-  CALLBACK_SCHEDULED: {
-    subtype: 'callback_scheduled',
-    summary: (name) => `Callback agendado com ${name} durante ligação.`,
-  },
-  QUALIFIED_OBJECTION: {
-    subtype: 'qualified_objection',
-    summary: (name) => `Objeção qualificada levantada por ${name} na ligação.`,
+  CALLBACK_REQUESTED: {
+    subtype: 'callback_requested',
+    summary: (name) => `${name} solicitou retorno durante ligação.`,
   },
 };
 
@@ -52,6 +49,7 @@ export class CallsService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly suppression: SuppressionService,
   ) {
     this.client = Twilio(
       this.config.getOrThrow<string>('TWILIO_ACCOUNT_SID'),
@@ -164,6 +162,10 @@ export class CallsService {
       return '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR">Número de destino ausente.</Say></Response>';
     }
 
+    if (await this.suppression.isSuppressed(to)) {
+      return '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR">Este número está na lista de não ligar mais.</Say></Response>';
+    }
+
     const user = userId
       ? await this.prisma.user.findUnique({
           where: { id: userId },
@@ -204,14 +206,15 @@ export class CallsService {
     userId: string,
     tenantId: string,
   ): Promise<Call> {
-    return this.prisma.$transaction(async (tx) => {
+    const call = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.call.findFirst({ where: { id, tenantId } });
       if (!existing) throw new NotFoundException('Call not found.');
 
-      const call = await tx.call.update({
+      const updated = await tx.call.update({
         where: { id },
         data: {
           outcome: dto.outcome,
+          notInterestedReason: dto.notInterestedReason,
           durationSeconds: dto.durationSeconds,
           isConversation:
             dto.durationSeconds !== undefined
@@ -224,30 +227,69 @@ export class CallsService {
         data: {
           type: ActivityType.OUTCOME_RECORDED,
           tenantId,
-          personId: call.personId,
+          personId: updated.personId,
           userId,
-          payload: { callId: call.id, outcome: call.outcome },
+          payload: { callId: updated.id, outcome: updated.outcome },
         },
       });
 
-      const signalTemplate = call.outcome
-        ? OUTCOME_SIGNAL[call.outcome]
+      const signalTemplate = updated.outcome
+        ? OUTCOME_SIGNAL[updated.outcome]
         : undefined;
-      if (signalTemplate && call.person) {
+      if (signalTemplate && updated.person) {
         await tx.signal.create({
           data: {
             tenantId,
             category: SignalCategory.ENGAGEMENT,
             subtype: signalTemplate.subtype,
-            accountId: call.person.accountId,
-            personId: call.personId,
-            summary: signalTemplate.summary(call.person.name),
+            accountId: updated.person.accountId,
+            personId: updated.personId,
+            summary: signalTemplate.summary(updated.person.name),
             source: 'Ligação registrada no Dialer',
           },
         });
       }
 
-      return call;
+      // "Solicitou retorno" creates a Task, which the Overview page's task
+      // list surfaces. Only possible when the call is tied to a real
+      // prospect (a /calls/test credential-check call has no personId).
+      if (
+        updated.outcome === CallOutcome.CALLBACK_REQUESTED &&
+        updated.personId &&
+        updated.person &&
+        dto.callbackDueAt &&
+        dto.callbackChannel
+      ) {
+        await tx.task.create({
+          data: {
+            tenantId,
+            personId: updated.personId,
+            accountId: updated.person.accountId,
+            sourceCallId: updated.id,
+            channel: dto.callbackChannel,
+            dueAt: new Date(dto.callbackDueAt),
+            // BDR-authored note, not an AI summary — see the DTO's comment
+            // on callbackNotes for why.
+            summary: dto.callbackNotes,
+          },
+        });
+      }
+
+      if (dto.suppressNumber) {
+        await tx.suppressedNumber.upsert({
+          where: { phoneNumber: updated.toNumber },
+          create: {
+            phoneNumber: updated.toNumber,
+            suppressedByTenantId: tenantId,
+            reason: 'Marcado no Dialer ao registrar outcome.',
+          },
+          update: {},
+        });
+      }
+
+      return updated;
     });
+
+    return call;
   }
 }

@@ -36,6 +36,8 @@ model Tenant {
   calls              Call[]
   signals            Signal[]
   activities         Activity[]
+  tasks              Task[]
+  accountResearch    AccountResearch[]
 
   @@map("tenants")
 }
@@ -171,6 +173,8 @@ model Account {
   people     Person[]
   signals    Signal[]
   activities Activity[]
+  tasks      Task[]
+  research   AccountResearch?
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -211,6 +215,7 @@ model Person {
   calls              Call[]
   activities         Activity[]
   signals            Signal[]
+  tasks              Task[]
 
   @@index([tenantId])
   @@index([accountId])
@@ -297,15 +302,27 @@ model CadenceEnrollment {
   @@map("cadence_enrollments")
 }
 
+// Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome
+// set entirely. "Não atendeu" is the standardized label everywhere in the
+// product (was "Só chamou").
 enum CallOutcome {
-  NO_ANSWER
   VOICEMAIL
-  CONVERSATION_NO_PROGRESS
-  QUALIFIED_OBJECTION
-  CALLBACK_SCHEDULED
-  MEETING_SCHEDULED
+  WRONG_PERSON
+  BUSY
+  NO_ANSWER
   INVALID_NUMBER
-  NOT_DECISION_MAKER
+  CALLBACK_REQUESTED
+  MEETING_SCHEDULED
+  NOT_INTERESTED
+}
+
+// Sub-reason captured only when outcome = NOT_INTERESTED.
+enum NotInterestedReason {
+  BUDGET
+  NOT_INTERESTED
+  PRODUCT_FEEDBACK
+  USES_COMPETITOR
+  DOES_NOT_WANT_TO_TALK
 }
 
 model Call {
@@ -328,6 +345,9 @@ model Call {
 
   outcome CallOutcome?
 
+  /// Set only when outcome = NOT_INTERESTED.
+  notInterestedReason NotInterestedReason?
+
   durationSeconds Int?
 
   /// True only when durationSeconds >= 30 — the "real conversation" rule.
@@ -339,6 +359,8 @@ model Call {
   connectedAt DateTime?
   endedAt     DateTime?
   createdAt   DateTime  @default(now())
+
+  tasks Task[]
 
   @@index([tenantId])
   @@index([personId])
@@ -429,4 +451,101 @@ model Activity {
   @@index([personId])
   @@index([userId])
   @@map("activities")
+}
+
+enum TaskChannel {
+  CALL
+  WHATSAPP
+  EMAIL
+  LINKEDIN
+}
+
+/// Created automatically when a Dialer call is classified "Solicitou
+/// retorno" — surfaces on the Overview page's task list, per the Dial spec.
+model Task {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// The call that generated this task, when there was one — kept even if
+  /// the call is later deleted (shouldn't happen, but the task shouldn't
+  /// vanish with it).
+  sourceCallId String?
+  sourceCall   Call?   @relation(fields: [sourceCallId], references: [id], onDelete: SetNull)
+
+  channel TaskChannel
+  dueAt   DateTime
+
+  /// "Resumo da task via IA" — filled asynchronously after creation, null
+  /// until the summary is generated.
+  summary String?
+
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([personId])
+  @@index([accountId])
+  @@map("tasks")
+}
+
+/// Global "não discar mais para esse número" list — deliberately NOT scoped
+/// by tenant, unlike every other table in this schema. This is a DNC/
+/// compliance control, not commercial data: a number marked here is
+/// suppressed for every tenant, not just the one that marked it. See the
+/// Dial spec (founder, 2026-08-24) for why this is an intentional exception
+/// to the multi-tenant isolation rule — don't "fix" this in a future
+/// isolation pass without re-reading that decision.
+model SuppressedNumber {
+  id          String @id @default(uuid())
+  phoneNumber String @unique
+
+  reason String?
+
+  /// Informational only, not a relation — which tenant first suppressed
+  /// this number doesn't gate anything, since the suppression is global.
+  suppressedByTenantId String?
+
+  createdAt DateTime @default(now())
+
+  @@map("suppressed_numbers")
+}
+
+/// Cached AI research for an Account (company overview, role importance/
+/// indicators, call script, objections, battlecards) — generated once on
+/// first connected call and reused on every subsequent connection/callback
+/// for that Account, per the Dial spec's "pesquisa profunda só pós-conexão,
+/// nunca regenerada à toa" rule.
+model AccountResearch {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  accountId String  @unique
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  companyOverview String
+  roleImportance  String
+  roleIndicators  String
+  callScript      String
+
+  /// Array of { objection: string; response: string }.
+  objections Json
+
+  /// Array of up to 3 { competitor: string; theirStrength: string; ourEdge: string }.
+  battlecards Json
+
+  generatedAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("account_research")
 }

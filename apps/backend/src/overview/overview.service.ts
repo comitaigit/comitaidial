@@ -9,8 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 const FOLLOW_UP_OUTCOMES: CallOutcome[] = [
   CallOutcome.NO_ANSWER,
   CallOutcome.VOICEMAIL,
-  CallOutcome.CALLBACK_SCHEDULED,
-  CallOutcome.QUALIFIED_OBJECTION,
+  CallOutcome.BUSY,
+  CallOutcome.CALLBACK_REQUESTED,
 ];
 
 const INSIGHT_TTL_MS = 10 * 60 * 1000;

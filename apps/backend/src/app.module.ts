@@ -12,6 +12,8 @@ import { PeopleModule } from './people/people.module';
 import { CadencesModule } from './cadences/cadences.module';
 import { SignalsModule } from './signals/signals.module';
 import { OverviewModule } from './overview/overview.module';
+import { SuppressionModule } from './suppression/suppression.module';
+import { DialerModule } from './dialer/dialer.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -37,6 +39,8 @@ import { validateEnv } from './config/env.validation';
     CadencesModule,
     SignalsModule,
     OverviewModule,
+    SuppressionModule,
+    DialerModule,
   ],
   controllers: [AppController],
   providers: [
