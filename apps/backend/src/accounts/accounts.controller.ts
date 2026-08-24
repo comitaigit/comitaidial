@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
+import { ImportAccountsDto } from './dto/import-accounts.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
@@ -25,6 +26,14 @@ export class AccountsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.accounts.create(dto, user.userId, user.tenantId);
+  }
+
+  @Post('import')
+  importCsv(
+    @Body() dto: ImportAccountsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.accounts.importFromCsv(dto.csv, user.userId, user.tenantId);
   }
 
   @Patch(':id')

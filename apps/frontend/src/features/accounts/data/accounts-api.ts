@@ -80,3 +80,20 @@ export function createAccount(
     body: JSON.stringify(input),
   });
 }
+
+export type ImportAccountsResult = {
+  created: number;
+  merged: number;
+  skipped: number;
+  errors: string[];
+};
+
+export function importAccounts(
+  csv: string,
+  accessToken: string,
+): Promise<ImportAccountsResult> {
+  return request<ImportAccountsResult>("/accounts/import", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ csv }),
+  });
+}
