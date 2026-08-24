@@ -16,10 +16,33 @@ export type CallOutcome =
   | "MEETING_SCHEDULED"
   | "NOT_INTERESTED";
 
+export type AccountPriority = "HIGH" | "MEDIUM" | "LOW";
+
+export type TranscriptUtterance = {
+  speaker: number;
+  text: string;
+  start: number;
+  end: number;
+};
+
+export type AiFeedback = {
+  context: string;
+  positives: string[];
+  improvements: string[];
+};
+
 export type Call = {
   id: string;
   personId: string | null;
-  person: { id: string; name: string } | null;
+  person:
+    | {
+        id: string;
+        name: string;
+        account: { id: string; name: string; priority: AccountPriority | null } | null;
+      }
+    | null;
+  userId: string | null;
+  user: { id: string; name: string } | null;
   twilioCallSid: string | null;
   toNumber: string;
   fromNumber: string;
@@ -28,6 +51,9 @@ export type Call = {
   isConversation: boolean;
   connectedAt: string | null;
   endedAt: string | null;
+  recordingUrl: string | null;
+  transcript: TranscriptUtterance[] | null;
+  aiFeedback: AiFeedback | null;
   createdAt: string;
 };
 

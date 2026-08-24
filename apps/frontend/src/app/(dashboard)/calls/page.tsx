@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { CallsPageContent } from "@/features/calls/components/CallsPageContent";
 
 export const metadata: Metadata = {
-  title: "Chamadas",
+  title: "Call Check",
 };
 
 // Client-fetched — see accounts/page.tsx's comment: /calls also requires
@@ -12,8 +12,8 @@ export default function CallsPage() {
   return (
     <section>
       <PageHeader
-        title="Chamadas"
-        subtitle="Histórico de ligações. Transcrição e AI sales coach chegam quando a gravação/transcrição do Twilio estiver conectada."
+        title="Call Check"
+        subtitle="Histórico de ligações com transcrição e AI Sales Coach. Análise da IA aparece a partir de 1 minuto de conversa conectada."
       />
       <CallsPageContent />
     </section>

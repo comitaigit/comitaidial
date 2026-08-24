@@ -77,6 +77,7 @@ model User {
   refreshTokens RefreshToken[]
   loginEvents   LoginEvent[]
   activities    Activity[]
+  calls         Call[]
 
   @@index([tenantId])
   @@map("users")
@@ -336,6 +337,12 @@ model Call {
   personId String?
   person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
 
+  /// Denormalized — which rep placed the call, for Call Check's "User name"
+  /// column. Set at creation time; the Activity trail also records userId,
+  /// but joining through Activity for a simple list column isn't worth it.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   /// Null for calls placed outside Twilio (e.g. manual log) — set once the
   /// real dialer module wires this up via the Twilio Calls API.
   twilioCallSid String? @unique
@@ -372,10 +379,17 @@ model Call {
   /// (>= 1 min calls) reads this.
   transcript Json?
 
+  /// { context: string; positives: string[]; improvements: string[] } —
+  /// generated once transcript is present AND durationSeconds >= 60 (Call
+  /// Check's AI Sales Coach). Calls under a minute never get one, per the
+  /// Dial spec — null forever for those, not just "not yet".
+  aiFeedback Json?
+
   tasks Task[]
 
   @@index([tenantId])
   @@index([personId])
+  @@index([userId])
   @@map("calls")
 }
 

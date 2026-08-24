@@ -64,14 +64,32 @@ export class CallsService {
     return this.prisma.call.findMany({
       where: personId ? { tenantId, personId } : { tenantId },
       orderBy: { createdAt: 'desc' },
-      include: { person: { select: { id: true, name: true } } },
+      include: {
+        user: { select: { id: true, name: true } },
+        person: {
+          select: {
+            id: true,
+            name: true,
+            account: { select: { id: true, name: true, priority: true } },
+          },
+        },
+      },
     });
   }
 
   async findOne(id: string, tenantId: string) {
     const call = await this.prisma.call.findFirst({
       where: { id, tenantId },
-      include: { person: { select: { id: true, name: true } } },
+      include: {
+        user: { select: { id: true, name: true } },
+        person: {
+          select: {
+            id: true,
+            name: true,
+            account: { select: { id: true, name: true, priority: true } },
+          },
+        },
+      },
     });
     if (!call) throw new NotFoundException('Call not found.');
     return call;
@@ -97,6 +115,7 @@ export class CallsService {
       const call = await tx.call.create({
         data: {
           tenantId,
+          userId,
           twilioCallSid: twilioCall.sid,
           toNumber: to,
           fromNumber: this.fromNumber,
@@ -189,6 +208,7 @@ export class CallsService {
       const call = await tx.call.create({
         data: {
           tenantId: user.tenantId,
+          userId,
           personId,
           twilioCallSid,
           toNumber: to,
@@ -327,6 +347,13 @@ export class CallsService {
 
       return updated;
     });
+
+    // AI Sales Coach feedback needs both the transcript (arrives async from
+    // Deepgram, may already be there) and durationSeconds (just saved above)
+    // — fire-and-forget, must never hold up the outcome response.
+    if (call.durationSeconds !== null) {
+      void this.transcription.maybeGenerateFeedback(call.id);
+    }
 
     return call;
   }

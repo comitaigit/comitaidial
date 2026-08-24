@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DeepgramClient } from '@deepgram/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type TranscriptUtterance = {
@@ -10,10 +11,38 @@ export type TranscriptUtterance = {
   end: number;
 };
 
+// AI Sales Coach feedback shape — see the schema comment on Call.aiFeedback.
+export type AiFeedback = {
+  context: string;
+  positives: string[];
+  improvements: string[];
+};
+
+// Calls under a minute never get a Sales Coach review — see the Dial spec
+// and the schema comment on Call.aiFeedback. Same threshold name would
+// collide with calls.service.ts's own MIN_CONVERSATION_SECONDS import if
+// shared, so it's kept local and equal (30s "real conversation" is a
+// separate, lower bar than the 60s "worth coaching" bar).
+const MIN_FEEDBACK_SECONDS = 60;
+
+function extractJson(text: string): Record<string, unknown> {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
+  const candidate = fenced ? fenced[1] : text;
+  try {
+    const parsed: unknown = JSON.parse(candidate);
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 @Injectable()
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
   private readonly deepgram: DeepgramClient;
+  private readonly anthropic: Anthropic;
 
   constructor(
     private readonly config: ConfigService,
@@ -21,6 +50,9 @@ export class TranscriptionService {
   ) {
     this.deepgram = new DeepgramClient({
       apiKey: this.config.getOrThrow<string>('DEEPGRAM_API_KEY'),
+    });
+    this.anthropic = new Anthropic({
+      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
     });
   }
 
@@ -54,9 +86,86 @@ export class TranscriptionService {
         where: { id: callId },
         data: { transcript },
       });
+
+      void this.maybeGenerateFeedback(callId);
     } catch (err) {
       this.logger.error(
         `Transcription failed for call ${callId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  // AI Sales Coach feedback needs both the transcript (this method, or
+  // async from Deepgram) and durationSeconds (BDR-recorded at outcome time)
+  // — whichever lands second calls this, so it's safe (and expected) to call
+  // it from both places. No-ops until both conditions hold, and never
+  // regenerates once aiFeedback is set.
+  async maybeGenerateFeedback(callId: string): Promise<void> {
+    const call = await this.prisma.call.findUnique({ where: { id: callId } });
+    if (!call || call.aiFeedback !== null) return;
+    if (
+      call.durationSeconds === null ||
+      call.durationSeconds < MIN_FEEDBACK_SECONDS
+    )
+      return;
+
+    const transcript = call.transcript as unknown as Array<{
+      speaker: number;
+      text: string;
+    }> | null;
+    if (!transcript || transcript.length === 0) return;
+
+    try {
+      const transcriptText = transcript
+        .map((u) => `Locutor ${u.speaker}: ${u.text}`)
+        .join('\n');
+
+      const prompt = `Você é um coach de vendas B2B. Abaixo está a transcrição
+diarizada de uma ligação de prospecção outbound (Locutor 0 costuma ser o
+vendedor, mas confirme pelo conteúdo). Analise a condução da ligação pelo
+vendedor.
+
+Transcrição:
+${transcriptText}
+
+Responda em JSON, em português, com este formato exato:
+{
+  "context": "resumo de 1-2 frases do que foi discutido e o resultado",
+  "positives": ["ponto positivo 1", "ponto positivo 2"],
+  "improvements": ["ponto de melhoria 1", "ponto de melhoria 2"]
+}
+"positives" e "improvements" devem ter 2-3 itens cada, focados em técnica de
+vendas (descoberta de necessidade, tratamento de objeções, próximos passos).
+Responda apenas com o JSON.`;
+
+      const message = await this.anthropic.messages.create({
+        model: 'claude-opus-5',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const textBlock = message.content.find(
+        (block): block is Anthropic.TextBlock => block.type === 'text',
+      );
+      const json = extractJson(textBlock?.text?.trim() ?? '{}');
+
+      const feedback: AiFeedback = {
+        context: typeof json.context === 'string' ? json.context : '',
+        positives: Array.isArray(json.positives)
+          ? json.positives.filter((v): v is string => typeof v === 'string')
+          : [],
+        improvements: Array.isArray(json.improvements)
+          ? json.improvements.filter((v): v is string => typeof v === 'string')
+          : [],
+      };
+
+      await this.prisma.call.update({
+        where: { id: callId },
+        data: { aiFeedback: feedback },
+      });
+    } catch (err) {
+      this.logger.error(
+        `AI feedback generation failed for call ${callId}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
