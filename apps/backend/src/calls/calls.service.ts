@@ -9,6 +9,7 @@ import {
 import Twilio from 'twilio';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from '../suppression/suppression.service';
+import { TranscriptionService } from '../transcription/transcription.service';
 import { UpdateCallOutcomeDto } from './dto/update-call-outcome.dto';
 
 // A call only counts as a real conversation once connected for >= 30s —
@@ -50,6 +51,7 @@ export class CallsService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly suppression: SuppressionService,
+    private readonly transcription: TranscriptionService,
   ) {
     this.client = Twilio(
       this.config.getOrThrow<string>('TWILIO_ACCOUNT_SID'),
@@ -177,11 +179,18 @@ export class CallsService {
       return '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR">Sessão inválida.</Say></Response>';
     }
 
+    // The TwiML App Voice Request's own CallSid is the parent call that's
+    // about to run <Dial> below — recording attaches to this call, and the
+    // recordingStatusCallback later reports back this exact CallSid, so
+    // storing it now is what lets handleRecordingStatus find this row.
+    const twilioCallSid = params.CallSid || undefined;
+
     await this.prisma.$transaction(async (tx) => {
       const call = await tx.call.create({
         data: {
           tenantId: user.tenantId,
           personId,
+          twilioCallSid,
           toNumber: to,
           fromNumber: this.fromNumber,
         },
@@ -197,7 +206,36 @@ export class CallsService {
       });
     });
 
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${this.fromNumber}"><Number>${escapeXml(to)}</Number></Dial></Response>`;
+    // record="record-from-answer" records the whole bridged call once the
+    // prospect answers; the recordingStatusCallback fires once Twilio has
+    // finished processing it, which kicks off transcription — see
+    // handleRecordingStatus.
+    const recordingCallbackUrl = `${this.config.getOrThrow<string>('PUBLIC_API_URL')}/v1/calls/recording-status`;
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${this.fromNumber}" record="record-from-answer" recordingStatusCallback="${escapeXml(recordingCallbackUrl)}" recordingStatusCallbackEvent="completed"><Number>${escapeXml(to)}</Number></Dial></Response>`;
+  }
+
+  // Twilio's recordingStatusCallback — fires once the <Dial>'s recording is
+  // ready. @Public(), verified via Twilio's request signature same as
+  // /voice. Persists the recording URL and kicks off transcription
+  // fire-and-forget: a slow/failed transcription must never hold up this
+  // webhook response.
+  async handleRecordingStatus(params: Record<string, string>): Promise<void> {
+    const twilioCallSid = params.CallSid;
+    const recordingUrl = params.RecordingUrl;
+    const status = params.RecordingStatus;
+    if (!twilioCallSid || !recordingUrl || status !== 'completed') return;
+
+    const call = await this.prisma.call.findUnique({
+      where: { twilioCallSid },
+    });
+    if (!call) return;
+
+    await this.prisma.call.update({
+      where: { id: call.id },
+      data: { recordingUrl },
+    });
+
+    void this.transcription.transcribeCall(call.id, recordingUrl);
   }
 
   async updateOutcome(

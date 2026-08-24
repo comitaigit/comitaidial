@@ -360,6 +360,18 @@ model Call {
   endedAt     DateTime?
   createdAt   DateTime  @default(now())
 
+  /// Twilio's recording URL, set once <Dial record="..."> finishes and the
+  /// recordingStatusCallback webhook fires. Base URL only (no .mp3/.wav
+  /// suffix) — Twilio recordings require Twilio Basic Auth to download, so
+  /// this is never handed to the frontend directly.
+  recordingUrl String?
+
+  /// Array of { speaker: number; text: string; start: number; end: number }
+  /// utterances from Deepgram diarization, set once transcription
+  /// completes. Null until then — Call Check's AI Sales Coach feedback
+  /// (>= 1 min calls) reads this.
+  transcript Json?
+
   tasks Task[]
 
   @@index([tenantId])

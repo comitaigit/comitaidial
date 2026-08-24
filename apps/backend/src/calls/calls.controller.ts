@@ -63,8 +63,32 @@ export class CallsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.verifyTwilioSignature(req, body, 'voice');
+    const twiml = await this.calls.handleVoiceWebhook(body);
+    res.type('text/xml');
+    return twiml;
+  }
+
+  // recordingStatusCallback from the /voice TwiML's <Dial record="...">.
+  // Same @Public() + signature verification as /voice — Twilio calls this
+  // directly, no user JWT available.
+  @Public()
+  @Post('recording-status')
+  async recordingStatus(
+    @Body() body: Record<string, string>,
+    @Req() req: Request,
+  ) {
+    this.verifyTwilioSignature(req, body, 'recording-status');
+    await this.calls.handleRecordingStatus(body);
+  }
+
+  private verifyTwilioSignature(
+    req: Request,
+    body: Record<string, string>,
+    path: string,
+  ): void {
     const signature = req.header('X-Twilio-Signature') ?? '';
-    const url = `${this.config.getOrThrow<string>('PUBLIC_API_URL')}/v1/calls/voice`;
+    const url = `${this.config.getOrThrow<string>('PUBLIC_API_URL')}/v1/calls/${path}`;
     const isValid = validateRequest(
       this.config.getOrThrow<string>('TWILIO_AUTH_TOKEN'),
       signature,
@@ -74,10 +98,6 @@ export class CallsController {
     if (!isValid) {
       throw new ForbiddenException('Invalid Twilio request signature.');
     }
-
-    const twiml = await this.calls.handleVoiceWebhook(body);
-    res.type('text/xml');
-    return twiml;
   }
 
   @Patch(':id')

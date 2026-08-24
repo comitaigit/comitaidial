@@ -114,6 +114,12 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   ANTHROPIC_API_KEY!: string;
+
+  // Transcribes recorded calls for Call Check — console.deepgram.com →
+  // API Keys. See src/transcription/transcription.service.ts.
+  @IsString()
+  @IsNotEmpty()
+  DEEPGRAM_API_KEY!: string;
 }
 
 /**
