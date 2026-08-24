@@ -36,7 +36,7 @@ async function bootstrap() {
   app.enableCors({
     origin: corsOrigins,
     credentials: true, // required so the refresh-token cookie is sent/received
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
 
   app.useGlobalPipes(
