@@ -38,13 +38,26 @@ const PRIORITY_VARIANT: Record<AccountPriority, "bad" | "warn" | "default"> = {
   LOW: "default",
 };
 
-// Status column, derived rather than stored — the Dial spec's three states
-// map onto fields we already have: outcome for "Agendado", isConversation
-// (>=30s connected) for "Conectada", everything else "Não conectada".
-function callStatus(call: Call): { label: string; variant: "ok" | "info" | "default" } {
+// Status column, derived from Outcome per the Dial spec's explicit mapping
+// (not from isConversation/duration): Agendado = reunião marcada; Conectada
+// = alguém atendeu mas sem reunião (sem interesse, solicitou retorno,
+// pessoa errada); Não conectada = a chamada nunca conectou a uma pessoa.
+const NOT_CONNECTED_OUTCOMES: CallOutcome[] = [
+  "NO_ANSWER",
+  "INVALID_NUMBER",
+  "BUSY",
+  "VOICEMAIL",
+];
+
+function callStatus(
+  call: Call,
+): { label: string; variant: "ok" | "info" | "default" } | null {
+  if (!call.outcome) return null;
   if (call.outcome === "MEETING_SCHEDULED") return { label: "Agendado", variant: "info" };
-  if (call.isConversation) return { label: "Conectada", variant: "ok" };
-  return { label: "Não conectada", variant: "default" };
+  if (NOT_CONNECTED_OUTCOMES.includes(call.outcome)) {
+    return { label: "Não conectada", variant: "default" };
+  }
+  return { label: "Conectada", variant: "ok" };
 }
 
 function formatWhen(iso: string): string {
@@ -101,7 +114,7 @@ export function CallsTable({ calls }: { calls: Call[] }) {
                 <Td>{call.toNumber}</Td>
                 <Td>{formatDuration(call.durationSeconds)}</Td>
                 <Td>
-                  <Tag variant={status.variant}>{status.label}</Tag>
+                  {status ? <Tag variant={status.variant}>{status.label}</Tag> : "—"}
                 </Td>
                 <Td>
                   {call.outcome ? (

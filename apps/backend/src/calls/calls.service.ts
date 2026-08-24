@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ActivityType,
@@ -7,6 +7,7 @@ import {
   SignalCategory,
 } from '@prisma/client';
 import Twilio from 'twilio';
+import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from '../suppression/suppression.service';
 import { TranscriptionService } from '../transcription/transcription.service';
@@ -44,8 +45,10 @@ function escapeXml(value: string): string {
 
 @Injectable()
 export class CallsService {
+  private readonly logger = new Logger(CallsService.name);
   private readonly client: Twilio.Twilio;
   private readonly fromNumber: string;
+  private readonly anthropic: Anthropic;
 
   constructor(
     private readonly config: ConfigService,
@@ -58,6 +61,9 @@ export class CallsService {
       this.config.getOrThrow<string>('TWILIO_AUTH_TOKEN'),
     );
     this.fromNumber = this.config.getOrThrow<string>('TWILIO_PHONE_NUMBER');
+    this.anthropic = new Anthropic({
+      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
+    });
   }
 
   findAll(tenantId: string, personId?: string) {
@@ -311,6 +317,7 @@ export class CallsService {
       // "Solicitou retorno" creates a Task, which the Overview page's task
       // list surfaces. Only possible when the call is tied to a real
       // prospect (a /calls/test credential-check call has no personId).
+      let createdTaskId: string | undefined;
       if (
         updated.outcome === CallOutcome.CALLBACK_REQUESTED &&
         updated.personId &&
@@ -318,7 +325,7 @@ export class CallsService {
         dto.callbackDueAt &&
         dto.callbackChannel
       ) {
-        await tx.task.create({
+        const task = await tx.task.create({
           data: {
             tenantId,
             personId: updated.personId,
@@ -326,11 +333,14 @@ export class CallsService {
             sourceCallId: updated.id,
             channel: dto.callbackChannel,
             dueAt: new Date(dto.callbackDueAt),
-            // BDR-authored note, not an AI summary — see the DTO's comment
-            // on callbackNotes for why.
+            // Starts as the BDR's raw note — see the DTO's comment on
+            // callbackNotes for why it isn't AI-generated at this point
+            // (no transcript exists yet). Overwritten below, fire-and-forget,
+            // with an actual "Resumo da task via IA" per the Dial spec.
             summary: dto.callbackNotes,
           },
         });
+        createdTaskId = task.id;
       }
 
       if (dto.suppressNumber) {
@@ -345,16 +355,57 @@ export class CallsService {
         });
       }
 
-      return updated;
+      return { updated, createdTaskId };
     });
 
     // AI Sales Coach feedback needs both the transcript (arrives async from
     // Deepgram, may already be there) and durationSeconds (just saved above)
     // — fire-and-forget, must never hold up the outcome response.
-    if (call.durationSeconds !== null) {
-      void this.transcription.maybeGenerateFeedback(call.id);
+    if (call.updated.durationSeconds !== null) {
+      void this.transcription.maybeGenerateFeedback(call.updated.id);
     }
 
-    return call;
+    if (call.createdTaskId && dto.callbackNotes) {
+      void this.generateTaskSummary(call.createdTaskId, dto.callbackNotes);
+    }
+
+    return call.updated;
+  }
+
+  // "Resumo da task via IA" (Dial spec, seção 5) — condenses the BDR's raw
+  // callbackNotes into a short summary of what the prospect asked for.
+  // Fire-and-forget from updateOutcome: the Task already exists with the raw
+  // note as a fallback, so a slow/failed summary never blocks recording the
+  // outcome.
+  private async generateTaskSummary(
+    taskId: string,
+    callbackNotes: string,
+  ): Promise<void> {
+    try {
+      const message = await this.anthropic.messages.create({
+        model: 'claude-opus-5',
+        max_tokens: 150,
+        messages: [
+          {
+            role: 'user',
+            content: `Resuma em UMA frase curta (máximo 20 palavras), em português, o que o prospect pediu nesta anotação de um BDR sobre um retorno de ligação. Sem aspas, sem markdown. Responda apenas com a frase.\n\nAnotação: ${callbackNotes}`,
+          },
+        ],
+      });
+      const textBlock = message.content.find(
+        (block): block is Anthropic.TextBlock => block.type === 'text',
+      );
+      const summary = textBlock?.text.trim();
+      if (!summary) return;
+
+      await this.prisma.task.update({
+        where: { id: taskId },
+        data: { summary },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Task summary generation failed for task ${taskId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 }

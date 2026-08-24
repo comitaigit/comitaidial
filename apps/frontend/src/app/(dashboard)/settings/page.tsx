@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHead, CardTitle, CardBody } from "@/components/ui/Card";
 import { OperationForm } from "@/features/settings/components/OperationForm";
+import { GoalsForm } from "@/features/settings/components/GoalsForm";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -31,10 +32,12 @@ export default function SettingsPage() {
     <section>
       <PageHeader
         title="Workspace"
-        subtitle="Configurações de founder/gestor. BDR não altera guardrails."
+        subtitle="Cadastre suas metas semanais aqui — o KPI Targets lê o que for definido nesta tela."
       />
 
       <div className="grid gap-3.5 lg:grid-cols-2">
+        <GoalsForm />
+
         <OperationForm />
 
         <Card>

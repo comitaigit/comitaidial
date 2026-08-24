@@ -7,6 +7,7 @@ export type NavItem = {
 
 export const OPERATION_ITEMS: NavItem[] = [
   { href: "/overview", label: "Visão geral", icon: "▦" },
+  { href: "/funnel", label: "Meu Funil", icon: "▽" },
   { href: "/dialer", label: "Dialer", icon: "☎", badge: "P0" },
   { href: "/calls", label: "Call Check", icon: "▥" },
   { href: "/inbox", label: "Inbox unificada", icon: "▣", badge: "3" },
@@ -17,7 +18,7 @@ export const OPERATION_ITEMS: NavItem[] = [
 ];
 
 export const MANAGEMENT_ITEMS: NavItem[] = [
-  { href: "/metrics", label: "Performance", icon: "⌁" },
+  { href: "/metrics", label: "KPI Targets", icon: "⌁" },
   { href: "/health", label: "Saúde dos canais", icon: "♡" },
   { href: "/settings", label: "Workspace", icon: "⚙" },
 ];

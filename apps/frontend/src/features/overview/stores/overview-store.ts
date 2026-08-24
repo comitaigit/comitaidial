@@ -2,55 +2,86 @@
 
 import { create } from "zustand";
 import {
-  getOverviewInsight,
-  getOverviewSummary,
-  type OverviewSummary,
+  getContentPill,
+  getOverviewKpis,
+  getTaskList,
+  type ContentPill,
+  type OverviewKpis,
+  type TaskListItem,
+  type WindowDays,
 } from "@/features/overview/data/overview-api";
 
 type AsyncStatus = "idle" | "loading" | "loaded" | "error";
 
 type OverviewState = {
-  summary: OverviewSummary | null;
-  summaryStatus: AsyncStatus;
-  summaryError: string | null;
-  fetchSummary: (accessToken: string) => Promise<void>;
+  windowDays: WindowDays;
+  setWindowDays: (days: WindowDays) => void;
 
-  insight: string | null;
-  insightStatus: AsyncStatus;
-  insightError: string | null;
-  fetchInsight: (accessToken: string) => Promise<void>;
+  kpis: OverviewKpis | null;
+  kpisStatus: AsyncStatus;
+  kpisError: string | null;
+
+  pill: ContentPill | null;
+  pillStatus: AsyncStatus;
+  pillError: string | null;
+
+  tasks: TaskListItem[];
+  tasksStatus: AsyncStatus;
+  tasksError: string | null;
+
+  fetchAll: (accessToken: string) => Promise<void>;
 };
 
-export const useOverviewStore = create<OverviewState>((set) => ({
-  summary: null,
-  summaryStatus: "idle",
-  summaryError: null,
-  fetchSummary: async (accessToken) => {
-    set({ summaryStatus: "loading", summaryError: null });
-    try {
-      const summary = await getOverviewSummary(accessToken);
-      set({ summary, summaryStatus: "loaded" });
-    } catch (err) {
-      set({
-        summaryStatus: "error",
-        summaryError: err instanceof Error ? err.message : "Failed to load overview.",
-      });
-    }
-  },
+export const useOverviewStore = create<OverviewState>((set, get) => ({
+  windowDays: 7,
+  setWindowDays: (days) => set({ windowDays: days }),
 
-  insight: null,
-  insightStatus: "idle",
-  insightError: null,
-  fetchInsight: async (accessToken) => {
-    set({ insightStatus: "loading", insightError: null });
-    try {
-      const { insight } = await getOverviewInsight(accessToken);
-      set({ insight, insightStatus: "loaded" });
-    } catch (err) {
-      set({
-        insightStatus: "error",
-        insightError: err instanceof Error ? err.message : "Failed to load insight.",
-      });
+  kpis: null,
+  kpisStatus: "idle",
+  kpisError: null,
+
+  pill: null,
+  pillStatus: "idle",
+  pillError: null,
+
+  tasks: [],
+  tasksStatus: "idle",
+  tasksError: null,
+
+  fetchAll: async (accessToken) => {
+    const { windowDays } = get();
+    set({ kpisStatus: "loading", kpisError: null, pillStatus: "loading", pillError: null });
+
+    const kpisPromise = getOverviewKpis(accessToken, windowDays)
+      .then((kpis) => set({ kpis, kpisStatus: "loaded" }))
+      .catch((err) =>
+        set({
+          kpisStatus: "error",
+          kpisError: err instanceof Error ? err.message : "Failed to load KPIs.",
+        }),
+      );
+
+    const pillPromise = getContentPill(accessToken, windowDays)
+      .then((pill) => set({ pill, pillStatus: "loaded" }))
+      .catch((err) =>
+        set({
+          pillStatus: "error",
+          pillError: err instanceof Error ? err.message : "Failed to load content pill.",
+        }),
+      );
+
+    if (get().tasksStatus === "idle") {
+      set({ tasksStatus: "loading", tasksError: null });
+      void getTaskList(accessToken)
+        .then((tasks) => set({ tasks, tasksStatus: "loaded" }))
+        .catch((err) =>
+          set({
+            tasksStatus: "error",
+            tasksError: err instanceof Error ? err.message : "Failed to load tasks.",
+          }),
+        );
     }
+
+    await Promise.all([kpisPromise, pillPromise]);
   },
 }));

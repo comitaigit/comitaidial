@@ -38,6 +38,7 @@ model Tenant {
   activities         Activity[]
   tasks              Task[]
   accountResearch    AccountResearch[]
+  goals              Goal[]
 
   @@map("tenants")
 }
@@ -78,6 +79,7 @@ model User {
   loginEvents   LoginEvent[]
   activities    Activity[]
   calls         Call[]
+  goals         Goal[]
 
   @@index([tenantId])
   @@map("users")
@@ -574,4 +576,50 @@ model AccountResearch {
 
   @@index([tenantId])
   @@map("account_research")
+}
+
+enum GoalPeriod {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+}
+
+/// One row per (user, period granularity) — a standing target the BDR
+/// keeps editing in place, not a new row every week/month. `period` exists
+/// from this first migration even though Workspace's UI only exposes
+/// WEEKLY today, per the Dial spec's explicit instruction not to have to
+/// remodel this later. Workspace (seção 8) writes here; KPI Targets
+/// (seção 6) only reads.
+model Goal {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  period GoalPeriod
+
+  callsTarget               Int @default(0)
+  conversationsTarget       Int @default(0)
+  dialingMinutesTarget      Int @default(0)
+  conversationMinutesTarget Int @default(0)
+  connectedCallsTarget      Int @default(0)
+
+  /// Who last wrote this goal, in role terms — enforces "gestor tem
+  /// prioridade em caso de conflito" (Dial spec, seção 8): once an ADMIN
+  /// sets a goal, the owning BDR can no longer silently overwrite it via
+  /// self-service; only another ADMIN write can change it further. This
+  /// specific enforcement mechanic isn't spelled out in the spec beyond
+  /// that one sentence — implemented this way as the most direct reading
+  /// of "gestor tem prioridade".
+  setByRole Role @default(MEMBER)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, period])
+  @@index([tenantId])
+  @@map("goals")
 }

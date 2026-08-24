@@ -4,26 +4,35 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { KpiCard } from "@/features/overview/components/KpiCard";
-import { WorkQueueCard } from "@/features/overview/components/WorkQueueCard";
-import { InsightPill } from "@/features/overview/components/InsightPill";
+import { WindowFilter } from "@/features/overview/components/WindowFilter";
+import { ContentPillCard } from "@/features/overview/components/ContentPillCard";
+import { TaskListCard } from "@/features/overview/components/TaskListCard";
 import { useOverviewPage } from "@/features/overview/hooks/useOverviewPage";
+
+function pct(value: number): string {
+  return `${(value * 100).toFixed(0)}%`;
+}
 
 export function OverviewPageContent() {
   const {
     bdrName,
+    windowDays,
+    changeWindow,
     kpis,
-    workQueue,
-    isSummaryLoading,
-    summaryError,
-    insight,
-    isInsightLoading,
-    insightError,
+    isKpisLoading,
+    kpisError,
+    pill,
+    isPillLoading,
+    pillError,
+    tasks,
+    isTasksLoading,
+    tasksError,
   } = useOverviewPage();
 
   return (
     <section>
       <PageHeader
-        title={bdrName ? `Hoje, ${bdrName}` : "Hoje"}
+        title={bdrName ? `Visão geral, ${bdrName}` : "Visão geral"}
         subtitle="Seu foco é gerar mais conversas reais a partir das ligações do Dialer."
         actions={
           <Link href="/dialer">
@@ -32,25 +41,30 @@ export function OverviewPageContent() {
         }
       />
 
-      <InsightPill insight={insight} isLoading={isInsightLoading} error={insightError} />
+      <WindowFilter value={windowDays} onChange={changeWindow} />
 
-      {summaryError ? (
-        <p className="mt-3.5 text-sm text-bad">{summaryError}</p>
-      ) : isSummaryLoading ? (
-        <p className="mt-3.5 text-sm text-muted">Carregando dados de hoje…</p>
+      {kpisError ? (
+        <p className="mt-3.5 text-sm text-bad">{kpisError}</p>
+      ) : isKpisLoading ? (
+        <p className="mt-3.5 text-sm text-muted">Carregando KPIs…</p>
       ) : (
-        <>
-          <div className="mt-3.5 grid grid-cols-2 gap-3.5 lg:grid-cols-3">
-            <KpiCard label="Conversas reais hoje" value={kpis?.conversationsToday ?? 0} />
-            <KpiCard label="Tentativas hoje" value={kpis?.attemptsToday ?? 0} />
-            <KpiCard label="Sinais de engajamento hoje" value={kpis?.signalsToday ?? 0} />
-          </div>
-
-          <div className="mt-3.5">
-            <WorkQueueCard items={workQueue} />
-          </div>
-        </>
+        <div className="mt-3.5 grid grid-cols-2 gap-3.5 lg:grid-cols-3">
+          <KpiCard label="Tentativas" value={kpis?.attempts ?? 0} />
+          <KpiCard label="Conectadas" value={kpis?.connected ?? 0} />
+          <KpiCard label="Conversas reais" value={kpis?.conversations ?? 0} />
+          <KpiCard label="Reuniões agendadas" value={kpis?.meetingsScheduled ?? 0} />
+          <KpiCard label="Connect rate" value={kpis ? pct(kpis.connectRate) : "0%"} />
+          <KpiCard label="Conversation rate" value={kpis ? pct(kpis.conversationRate) : "0%"} />
+        </div>
       )}
+
+      <div className="mt-3.5">
+        <ContentPillCard pill={pill} isLoading={isPillLoading} error={pillError} />
+      </div>
+
+      <div className="mt-3.5">
+        <TaskListCard tasks={tasks} isLoading={isTasksLoading} error={tasksError} />
+      </div>
     </section>
   );
 }

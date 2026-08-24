@@ -6,34 +6,34 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
 
-export type CallOutcome =
-  | "VOICEMAIL"
-  | "WRONG_PERSON"
-  | "BUSY"
-  | "NO_ANSWER"
-  | "INVALID_NUMBER"
-  | "CALLBACK_REQUESTED"
-  | "MEETING_SCHEDULED"
-  | "NOT_INTERESTED";
+export type WindowDays = 7 | 15 | 30;
 
 export type OverviewKpis = {
-  attemptsToday: number;
-  conversationsToday: number;
-  signalsToday: number;
+  attempts: number;
+  connected: number;
+  conversations: number;
+  meetingsScheduled: number;
+  connectRate: number;
+  conversationRate: number;
 };
 
-export type WorkQueueItem = {
-  personId: string;
-  name: string;
-  role: string | null;
-  accountName: string;
-  lastOutcome: CallOutcome;
-  lastCallAt: string;
+export type ContentPill =
+  | { ready: false; classifiedCount: number }
+  | { ready: true; painPoints: string[]; objections: string[]; recommendation: string };
+
+export type TaskListItem = {
+  id: string;
+  companyName: string;
+  prospectName: string;
+  dueAt: string;
+  summary: string | null;
 };
 
-export type OverviewSummary = {
-  kpis: OverviewKpis;
-  workQueue: WorkQueueItem[];
+export type Funnel = {
+  attempts: number;
+  connected: number;
+  conversations: number;
+  meetingsScheduled: number;
 };
 
 export class OverviewApiError extends Error {
@@ -74,10 +74,18 @@ async function request<T>(path: string, accessToken: string, init?: RequestInit)
   return res.json() as Promise<T>;
 }
 
-export function getOverviewSummary(accessToken: string): Promise<OverviewSummary> {
-  return request<OverviewSummary>("/overview/summary", accessToken);
+export function getOverviewKpis(accessToken: string, days: WindowDays): Promise<OverviewKpis> {
+  return request<OverviewKpis>(`/overview/kpis?days=${days}`, accessToken);
 }
 
-export function getOverviewInsight(accessToken: string): Promise<{ insight: string }> {
-  return request<{ insight: string }>("/overview/insight", accessToken);
+export function getContentPill(accessToken: string, days: WindowDays): Promise<ContentPill> {
+  return request<ContentPill>(`/overview/content-pill?days=${days}`, accessToken);
+}
+
+export function getTaskList(accessToken: string): Promise<TaskListItem[]> {
+  return request<TaskListItem[]>("/overview/tasks", accessToken);
+}
+
+export function getFunnel(accessToken: string, days: WindowDays): Promise<Funnel> {
+  return request<Funnel>(`/overview/funnel?days=${days}`, accessToken);
 }
