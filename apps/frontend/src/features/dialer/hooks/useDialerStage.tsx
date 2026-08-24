@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "@/features/shell/stores/session-store";
+import { openModal, closeModal } from "@/features/shell/stores/modal-store";
 import { useSoftphone } from "@/features/dialer/hooks/useSoftphone";
 import { useDialerQueue } from "@/features/dialer/hooks/useDialerQueue";
 import { useResearchCard } from "@/features/dialer/hooks/useResearchCard";
 import { getLatestCallForPerson } from "@/features/dialer/data/dialer-api";
+import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
 
 // "Não atendeu / caixa postal / ocupado" hold the row for a short window
@@ -29,7 +31,9 @@ export function useDialerStage() {
   const currentPerson = queue.currentPerson;
 
   // Card de research só abre quando a chamada realmente conecta — pesquisa
-  // profunda é sempre pós-conexão, nunca antes.
+  // profunda é sempre pós-conexão, nunca antes. Depende de answerOnBridge
+  // no <Dial> do backend para "in-call" só disparar quando o prospect
+  // realmente atender (não quando a linha começa a tocar).
   useEffect(() => {
     if (softphone.status === "in-call" && currentPerson) {
       void research.load(currentPerson.accountId, currentPerson.role);
@@ -52,6 +56,62 @@ export function useDialerStage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new call actually ends
   }, [softphone.lastDurationSeconds]);
+
+  const finishAttempt = useCallback(
+    (kind: OutcomeKind) => {
+      setAwaitingOutcome(false);
+      setActiveCallId(null);
+      setCalledPersonId(null);
+      research.clear();
+      closeModal();
+
+      if (kind === "final") {
+        queue.removeCurrentAndAdvance();
+        return;
+      }
+
+      // retry / invalid: hold the row for RETRY_WINDOW_SECONDS, then either
+      // requeue it (retry) or drop it for good (invalid — número inexistente).
+      setPendingResultKind(kind);
+      setRetryCountdown(RETRY_WINDOW_SECONDS);
+      countdownRef.current = setInterval(() => {
+        setRetryCountdown((seconds) => {
+          if (seconds === null || seconds <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            setPendingResultKind(null);
+            if (kind === "retry") queue.requeueCurrent();
+            else queue.removeCurrentAndAdvance();
+            return null;
+          }
+          return seconds - 1;
+        });
+      }, 1000);
+    },
+    [queue, research],
+  );
+
+  // Popup para cadastro do outcome, não um card fixo na tela — abre sozinho
+  // assim que uma tentativa exige classificação. Exposta também como
+  // openOutcomeModal para reabrir manualmente caso o BDR feche o popup sem
+  // registrar (toda tentativa exige um outcome antes de seguir).
+  const openOutcomeModal = useCallback(() => {
+    openModal(
+      <ContactOutcomeModal
+        person={currentPerson}
+        callId={activeCallId}
+        durationSeconds={softphone.lastDurationSeconds}
+        onSaved={finishAttempt}
+      />,
+      "Registrar outcome",
+    );
+     
+  }, [currentPerson, activeCallId, softphone.lastDurationSeconds, finishAttempt]);
+
+  useEffect(() => {
+    if (awaitingOutcome) openOutcomeModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the awaitingOutcome transition
+  }, [awaitingOutcome]);
 
   const clearCountdown = useCallback(() => {
     if (countdownRef.current) {
@@ -84,39 +144,6 @@ export function useDialerStage() {
     startCall();
   }, [clearCountdown, startCall]);
 
-  const finishAttempt = useCallback(
-    (kind: OutcomeKind) => {
-      setAwaitingOutcome(false);
-      setActiveCallId(null);
-      setCalledPersonId(null);
-      research.clear();
-
-      if (kind === "final") {
-        queue.removeCurrentAndAdvance();
-        return;
-      }
-
-      // retry / invalid: hold the row for RETRY_WINDOW_SECONDS, then either
-      // requeue it (retry) or drop it for good (invalid — número inexistente).
-      setPendingResultKind(kind);
-      setRetryCountdown(RETRY_WINDOW_SECONDS);
-      countdownRef.current = setInterval(() => {
-        setRetryCountdown((seconds) => {
-          if (seconds === null || seconds <= 1) {
-            if (countdownRef.current) clearInterval(countdownRef.current);
-            countdownRef.current = null;
-            setPendingResultKind(null);
-            if (kind === "retry") queue.requeueCurrent();
-            else queue.removeCurrentAndAdvance();
-            return null;
-          }
-          return seconds - 1;
-        });
-      }, 1000);
-    },
-    [queue, research],
-  );
-
   return {
     softphone,
     queue,
@@ -131,5 +158,6 @@ export function useDialerStage() {
     retryNow,
     hangup: softphone.hangup,
     finishAttempt,
+    openOutcomeModal,
   };
 }

@@ -236,8 +236,18 @@ export class CallsService {
     // prospect answers; the recordingStatusCallback fires once Twilio has
     // finished processing it, which kicks off transcription — see
     // handleRecordingStatus.
+    //
+    // answerOnBridge="true" is load-bearing: without it, Twilio answers the
+    // BROWSER's leg (and bills it, and fires the Voice SDK's "accept" event)
+    // the instant <Dial> starts executing — i.e. while the prospect's phone
+    // is still ringing, not when they actually pick up. That falsely early
+    // "accept" is what the frontend uses to flip into "in-call" and start
+    // both the connected-call timer (durationSeconds — the 30s/60s
+    // conversation thresholds) and account research generation, so without
+    // this attribute both were measuring/firing from ring-start instead of
+    // from the real answer.
     const recordingCallbackUrl = `${this.config.getOrThrow<string>('PUBLIC_API_URL')}/v1/calls/recording-status`;
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${this.fromNumber}" record="record-from-answer" recordingStatusCallback="${escapeXml(recordingCallbackUrl)}" recordingStatusCallbackEvent="completed"><Number>${escapeXml(to)}</Number></Dial></Response>`;
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${this.fromNumber}" answerOnBridge="true" record="record-from-answer" recordingStatusCallback="${escapeXml(recordingCallbackUrl)}" recordingStatusCallbackEvent="completed"><Number>${escapeXml(to)}</Number></Dial></Response>`;
   }
 
   // Twilio's recordingStatusCallback — fires once the <Dial>'s recording is

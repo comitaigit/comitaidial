@@ -3,7 +3,6 @@
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { QueueTable } from "@/features/dialer/components/QueueTable";
-import { OutcomeForm } from "@/features/dialer/components/OutcomeForm";
 import { ResearchCard } from "@/features/dialer/components/ResearchCard";
 import { useDialerStage } from "@/features/dialer/hooks/useDialerStage";
 import type { SoftphoneStatus } from "@/features/dialer/hooks/useSoftphone";
@@ -23,15 +22,13 @@ export function DialerStage() {
     queue,
     research,
     currentPerson,
-    activeCallId,
-    lastDurationSeconds,
     awaitingOutcome,
     pendingResultKind,
     retryCountdown,
     startCall,
     retryNow,
     hangup,
-    finishAttempt,
+    openOutcomeModal,
   } = useDialerStage();
 
   const currentStatusLabel =
@@ -75,19 +72,21 @@ export function DialerStage() {
         outcome antes de seguir para o próximo.
       </div>
 
+      {awaitingOutcome && currentPerson ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-accent bg-soft p-3.5">
+          <div className="text-xs">
+            Outcome pendente para <b>{currentPerson.name}</b> — a ligação encerrou e precisa
+            ser classificada antes da próxima.
+          </div>
+          <Button variant="primary" size="small" onClick={openOutcomeModal}>
+            Registrar outcome
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-3.5 lg:grid-cols-[1.15fr_0.85fr]">
         <QueueTable queue={queue.queue} currentStatusLabel={currentStatusLabel} />
-
-        <div className="grid gap-3.5">
-          <OutcomeForm
-            person={currentPerson}
-            callId={activeCallId}
-            durationSeconds={lastDurationSeconds}
-            active={awaitingOutcome}
-            onSaved={finishAttempt}
-          />
-          <ResearchCard research={research.research} status={research.status} error={research.error} />
-        </div>
+        <ResearchCard research={research.research} status={research.status} error={research.error} />
       </div>
     </div>
   );
