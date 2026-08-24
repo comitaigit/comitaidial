@@ -60,17 +60,17 @@ export class CallsService {
     this.fromNumber = this.config.getOrThrow<string>('TWILIO_PHONE_NUMBER');
   }
 
-  findAll(personId?: string) {
+  findAll(tenantId: string, personId?: string) {
     return this.prisma.call.findMany({
-      where: personId ? { personId } : undefined,
+      where: personId ? { tenantId, personId } : { tenantId },
       orderBy: { createdAt: 'desc' },
       include: { person: { select: { id: true, name: true } } },
     });
   }
 
-  async findOne(id: string) {
-    const call = await this.prisma.call.findUnique({
-      where: { id },
+  async findOne(id: string, tenantId: string) {
+    const call = await this.prisma.call.findFirst({
+      where: { id, tenantId },
       include: { person: { select: { id: true, name: true } } },
     });
     if (!call) throw new NotFoundException('Call not found.');
@@ -81,7 +81,11 @@ export class CallsService {
   // persists it as a Call (personId null — this is a credential/caller-ID
   // check, not tied to a prospect) before returning, same "record before
   // any visual change" rule as every other domain action.
-  async placeTestCall(to: string, userId: string): Promise<{ sid: string }> {
+  async placeTestCall(
+    to: string,
+    userId: string,
+    tenantId: string,
+  ): Promise<{ sid: string }> {
     const twilioCall = await this.client.calls.create({
       to,
       from: this.fromNumber,
@@ -92,6 +96,7 @@ export class CallsService {
     await this.prisma.$transaction(async (tx) => {
       const call = await tx.call.create({
         data: {
+          tenantId,
           twilioCallSid: twilioCall.sid,
           toNumber: to,
           fromNumber: this.fromNumber,
@@ -100,6 +105,7 @@ export class CallsService {
       await tx.activity.create({
         data: {
           type: ActivityType.CALL_PLACED,
+          tenantId,
           userId,
           payload: {
             callId: call.id,
@@ -140,9 +146,12 @@ export class CallsService {
   // TwiML App's Voice URL points here. Twilio POSTs here the moment the
   // browser softphone calls device.connect({ params: { To, personId } }) —
   // this bridges the browser leg to the prospect's real phone via <Dial>,
-  // and persists the Call (+ Activity, when the caller's identity is
-  // recoverable) before responding, same "record before any visual change"
-  // rule as every other domain action.
+  // and persists the Call (+ Activity) before responding, same "record
+  // before any visual change" rule as every other domain action. This route
+  // is @Public() (Twilio can't send our JWT), so the caller's tenant is
+  // recovered from the userId embedded in the Voice Access Token's identity
+  // (From=client:<userId>) — a Call can't be saved without one, since every
+  // row now requires a tenantId.
   async handleVoiceWebhook(params: Record<string, string>): Promise<string> {
     const to = params.To;
     const personId = params.personId || null;
@@ -155,20 +164,35 @@ export class CallsService {
       return '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR">Número de destino ausente.</Say></Response>';
     }
 
+    const user = userId
+      ? await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { tenantId: true },
+        })
+      : null;
+
+    if (!user) {
+      return '<?xml version="1.0" encoding="UTF-8"?><Response><Say language="pt-BR">Sessão inválida.</Say></Response>';
+    }
+
     await this.prisma.$transaction(async (tx) => {
       const call = await tx.call.create({
-        data: { personId, toNumber: to, fromNumber: this.fromNumber },
+        data: {
+          tenantId: user.tenantId,
+          personId,
+          toNumber: to,
+          fromNumber: this.fromNumber,
+        },
       });
-      if (userId) {
-        await tx.activity.create({
-          data: {
-            type: ActivityType.CALL_PLACED,
-            personId,
-            userId,
-            payload: { callId: call.id },
-          },
-        });
-      }
+      await tx.activity.create({
+        data: {
+          type: ActivityType.CALL_PLACED,
+          tenantId: user.tenantId,
+          personId,
+          userId,
+          payload: { callId: call.id },
+        },
+      });
     });
 
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${this.fromNumber}"><Number>${escapeXml(to)}</Number></Dial></Response>`;
@@ -178,9 +202,10 @@ export class CallsService {
     id: string,
     dto: UpdateCallOutcomeDto,
     userId: string,
+    tenantId: string,
   ): Promise<Call> {
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.call.findUnique({ where: { id } });
+      const existing = await tx.call.findFirst({ where: { id, tenantId } });
       if (!existing) throw new NotFoundException('Call not found.');
 
       const call = await tx.call.update({
@@ -198,6 +223,7 @@ export class CallsService {
       await tx.activity.create({
         data: {
           type: ActivityType.OUTCOME_RECORDED,
+          tenantId,
           personId: call.personId,
           userId,
           payload: { callId: call.id, outcome: call.outcome },
@@ -210,6 +236,7 @@ export class CallsService {
       if (signalTemplate && call.person) {
         await tx.signal.create({
           data: {
+            tenantId,
             category: SignalCategory.ENGAGEMENT,
             subtype: signalTemplate.subtype,
             accountId: call.person.accountId,

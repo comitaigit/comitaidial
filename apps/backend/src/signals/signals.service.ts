@@ -6,13 +6,17 @@ import { PrismaService } from '../prisma/prisma.service';
 export class SignalsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(filters: {
-    accountId?: string;
-    personId?: string;
-    category?: SignalCategory;
-  }) {
+  findAll(
+    tenantId: string,
+    filters: {
+      accountId?: string;
+      personId?: string;
+      category?: SignalCategory;
+    },
+  ) {
     return this.prisma.signal.findMany({
       where: {
+        tenantId,
         accountId: filters.accountId,
         personId: filters.personId,
         category: filters.category,

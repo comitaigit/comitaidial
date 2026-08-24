@@ -1,6 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { SignalCategory } from '@prisma/client';
 import { SignalsService } from './signals.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
 @Controller('signals')
 export class SignalsController {
@@ -8,10 +10,15 @@ export class SignalsController {
 
   @Get()
   findAll(
-    @Query('accountId') accountId?: string,
-    @Query('personId') personId?: string,
-    @Query('category') category?: SignalCategory,
+    @Query('accountId') accountId: string | undefined,
+    @Query('personId') personId: string | undefined,
+    @Query('category') category: SignalCategory | undefined,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.signals.findAll({ accountId, personId, category });
+    return this.signals.findAll(user.tenantId, {
+      accountId,
+      personId,
+      category,
+    });
   }
 }

@@ -8,17 +8,17 @@ import { UpdatePersonDto } from './dto/update-person.dto';
 export class PeopleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(accountId?: string) {
+  findAll(tenantId: string, accountId?: string) {
     return this.prisma.person.findMany({
-      where: accountId ? { accountId } : undefined,
+      where: accountId ? { tenantId, accountId } : { tenantId },
       orderBy: { createdAt: 'desc' },
       include: { account: { select: { id: true, name: true } } },
     });
   }
 
-  async findOne(id: string) {
-    const person = await this.prisma.person.findUnique({
-      where: { id },
+  async findOne(id: string, tenantId: string) {
+    const person = await this.prisma.person.findFirst({
+      where: { id, tenantId },
       include: { account: { select: { id: true, name: true } } },
     });
     if (!person) throw new NotFoundException('Person not found.');
@@ -28,17 +28,22 @@ export class PeopleService {
   // Same pattern as AccountsService: the Person row and its Activity audit
   // record are written in one transaction, so the action is durable before
   // the response — and any UI change — happens.
-  create(dto: CreatePersonDto, userId: string): Promise<Person> {
+  create(
+    dto: CreatePersonDto,
+    userId: string,
+    tenantId: string,
+  ): Promise<Person> {
     return this.prisma.$transaction(async (tx) => {
-      const account = await tx.account.findUnique({
-        where: { id: dto.accountId },
+      const account = await tx.account.findFirst({
+        where: { id: dto.accountId, tenantId },
       });
       if (!account) throw new NotFoundException('Account not found.');
 
-      const person = await tx.person.create({ data: dto });
+      const person = await tx.person.create({ data: { ...dto, tenantId } });
       await tx.activity.create({
         data: {
           type: ActivityType.PERSON_CREATED,
+          tenantId,
           accountId: person.accountId,
           personId: person.id,
           userId,
@@ -53,15 +58,17 @@ export class PeopleService {
     id: string,
     dto: UpdatePersonDto,
     userId: string,
+    tenantId: string,
   ): Promise<Person> {
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.person.findUnique({ where: { id } });
+      const existing = await tx.person.findFirst({ where: { id, tenantId } });
       if (!existing) throw new NotFoundException('Person not found.');
 
       const person = await tx.person.update({ where: { id }, data: dto });
       await tx.activity.create({
         data: {
           type: ActivityType.FIELD_EDITED,
+          tenantId,
           accountId: person.accountId,
           personId: person.id,
           userId,

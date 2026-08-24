@@ -33,7 +33,12 @@ export type WorkQueueItem = {
 @Injectable()
 export class OverviewService {
   private readonly anthropic: Anthropic;
-  private cachedInsight: { text: string; expiresAt: number } | null = null;
+  // Keyed by tenantId — each tenant's insight is generated from its own
+  // data and must never leak into another tenant's cached response.
+  private readonly insightCache = new Map<
+    string,
+    { text: string; expiresAt: number }
+  >();
 
   constructor(
     private readonly config: ConfigService,
@@ -53,16 +58,22 @@ export class OverviewService {
   // Real KPIs only — no cost/abandonment here, since there's no real cost or
   // parallel-dial data source yet (see outcome-definitions skill for why
   // conversationsToday reads isConversation, not the raw outcome).
-  async getKpis(): Promise<OverviewKpis> {
+  async getKpis(tenantId: string): Promise<OverviewKpis> {
     const startOfToday = this.startOfToday();
     const [attemptsToday, conversationsToday, signalsToday] = await Promise.all(
       [
-        this.prisma.call.count({ where: { createdAt: { gte: startOfToday } } }),
         this.prisma.call.count({
-          where: { createdAt: { gte: startOfToday }, isConversation: true },
+          where: { tenantId, createdAt: { gte: startOfToday } },
+        }),
+        this.prisma.call.count({
+          where: {
+            tenantId,
+            createdAt: { gte: startOfToday },
+            isConversation: true,
+          },
         }),
         this.prisma.signal.count({
-          where: { occurredAt: { gte: startOfToday } },
+          where: { tenantId, occurredAt: { gte: startOfToday } },
         }),
       ],
     );
@@ -71,9 +82,13 @@ export class OverviewService {
 
   // Most recent call per prospect, limited to outcomes that need a follow-up
   // — a real "who to call next" queue instead of a curated mock.
-  async getWorkQueue(limit = 6): Promise<WorkQueueItem[]> {
+  async getWorkQueue(tenantId: string, limit = 6): Promise<WorkQueueItem[]> {
     const calls = await this.prisma.call.findMany({
-      where: { personId: { not: null }, outcome: { in: FOLLOW_UP_OUTCOMES } },
+      where: {
+        tenantId,
+        personId: { not: null },
+        outcome: { in: FOLLOW_UP_OUTCOMES },
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { person: { include: { account: true } } },
@@ -97,28 +112,30 @@ export class OverviewService {
     return items;
   }
 
-  async getSummary(): Promise<{
+  async getSummary(tenantId: string): Promise<{
     kpis: OverviewKpis;
     workQueue: WorkQueueItem[];
   }> {
     const [kpis, workQueue] = await Promise.all([
-      this.getKpis(),
-      this.getWorkQueue(),
+      this.getKpis(tenantId),
+      this.getWorkQueue(tenantId),
     ]);
     return { kpis, workQueue };
   }
 
   // One-sentence AI insight for the Overview header, generated from today's
-  // real KPIs + the most recent engagement Signals. Cached in memory for
+  // real KPIs + the most recent engagement Signals. Cached per tenant for
   // INSIGHT_TTL_MS so refreshing the page doesn't re-bill the LLM every time.
-  async getInsight(): Promise<{ insight: string }> {
-    if (this.cachedInsight && this.cachedInsight.expiresAt > Date.now()) {
-      return { insight: this.cachedInsight.text };
+  async getInsight(tenantId: string): Promise<{ insight: string }> {
+    const cached = this.insightCache.get(tenantId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { insight: cached.text };
     }
 
     const [kpis, recentSignals] = await Promise.all([
-      this.getKpis(),
+      this.getKpis(tenantId),
       this.prisma.signal.findMany({
+        where: { tenantId },
         orderBy: { occurredAt: 'desc' },
         take: 5,
       }),
@@ -153,10 +170,10 @@ markdown, aspas ou emojis. Responda apenas com a frase.`;
       textBlock?.text.trim() ||
       'Sem dados suficientes hoje para gerar um insight.';
 
-    this.cachedInsight = {
+    this.insightCache.set(tenantId, {
       text: insight,
       expiresAt: Date.now() + INSIGHT_TTL_MS,
-    };
+    });
     return { insight };
   }
 }

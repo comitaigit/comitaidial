@@ -18,18 +18,21 @@ export class PeopleController {
   constructor(private readonly people: PeopleService) {}
 
   @Get()
-  findAll(@Query('accountId') accountId?: string) {
-    return this.people.findAll(accountId);
+  findAll(
+    @Query('accountId') accountId: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.people.findAll(user.tenantId, accountId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.people.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.people.findOne(id, user.tenantId);
   }
 
   @Post()
   create(@Body() dto: CreatePersonDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.people.create(dto, user.userId);
+    return this.people.create(dto, user.userId, user.tenantId);
   }
 
   @Patch(':id')
@@ -38,6 +41,6 @@ export class PeopleController {
     @Body() dto: UpdatePersonDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.people.update(id, dto, user.userId);
+    return this.people.update(id, dto, user.userId, user.tenantId);
   }
 }

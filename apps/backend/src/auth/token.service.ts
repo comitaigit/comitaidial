@@ -8,6 +8,7 @@ export type AccessTokenPayload = {
   sub: string;
   email: string;
   role: string;
+  tenantId: string;
 };
 
 const REFRESH_TOKEN_BYTES = 64;
@@ -95,7 +96,9 @@ export class TokenService {
     | { status: 'invalid' }
   > {
     const tokenHash = this.hashRefreshToken(rawToken);
-    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
 
     if (!stored) return { status: 'invalid' };
 

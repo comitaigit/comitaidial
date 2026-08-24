@@ -7,20 +7,31 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    return this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
   }
 
   findById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
-  create(data: { email: string; name: string; passwordHash: string }): Promise<User> {
+  create(data: {
+    email: string;
+    name: string;
+    passwordHash: string;
+    tenantId: string;
+  }): Promise<User> {
     return this.prisma.user.create({
       data: { ...data, email: data.email.toLowerCase() },
     });
   }
 
-  async recordFailedLogin(userId: string, maxAttempts: number, lockoutMinutes: number) {
+  async recordFailedLogin(
+    userId: string,
+    maxAttempts: number,
+    lockoutMinutes: number,
+  ) {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { failedLoginAttempts: { increment: 1 } },

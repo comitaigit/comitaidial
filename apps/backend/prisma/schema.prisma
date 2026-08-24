@@ -13,13 +13,47 @@ datasource db {
   provider = "postgresql"
 }
 
+// --- Multi-tenancy ---
+// Every domain table below is scoped to a Tenant from its first migration —
+// see the Dial spec (founder, 2026-08-24). RefreshToken/LoginEvent are
+// deliberately NOT given their own tenantId: they're pure auth plumbing,
+// always looked up by tokenHash or userId (never listed per-tenant), and
+// userId already transitively scopes them — a duplicate column there would
+// be dead weight, not a real isolation boundary.
+model Tenant {
+  id   String @id @default(uuid())
+  name String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  accounts           Account[]
+  people             Person[]
+  cadences           Cadence[]
+  cadenceSteps       CadenceStep[]
+  cadenceEnrollments CadenceEnrollment[]
+  calls              Call[]
+  signals            Signal[]
+  activities         Activity[]
+
+  @@map("tenants")
+}
+
 enum Role {
   ADMIN
   MEMBER
 }
 
 model User {
-  id    String @id @default(uuid())
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Globally unique for now (single-tenant user base in practice — no
+  /// tenant signup/invite flow exists yet). Revisit if/when a person needs
+  /// logins in two different tenants under the same email.
   email String @unique
   name  String
 
@@ -35,13 +69,14 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
-  createdAt DateTime @updatedAt @default(now())
+  createdAt DateTime @default(now()) @updatedAt
   updatedAt DateTime @updatedAt
 
   refreshTokens RefreshToken[]
   loginEvents   LoginEvent[]
   activities    Activity[]
 
+  @@index([tenantId])
   @@map("users")
 }
 
@@ -64,7 +99,7 @@ model RefreshToken {
 
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("refresh_tokens")
@@ -111,9 +146,15 @@ enum AccountPriority {
 }
 
 model Account {
-  id      String  @id @default(uuid())
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   name    String
-  domain  String? @unique
+  /// Unique per tenant, not globally — two unrelated Comitai customers can
+  /// both be prospecting the same real-world company.
+  domain  String?
   segment String?
 
   /// Manual, set by the rep — HIGH/MEDIUM/LOW ("alta"/"média"/"baixa").
@@ -131,6 +172,8 @@ model Account {
   signals    Signal[]
   activities Activity[]
 
+  @@unique([tenantId, domain])
+  @@index([tenantId])
   @@map("accounts")
 }
 
@@ -143,6 +186,9 @@ enum InfluenceLevel {
 
 model Person {
   id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   accountId String
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -166,6 +212,7 @@ model Person {
   activities         Activity[]
   signals            Signal[]
 
+  @@index([tenantId])
   @@index([accountId])
   @@map("people")
 }
@@ -182,7 +229,11 @@ enum CadenceStepType {
 }
 
 model Cadence {
-  id     String  @id @default(uuid())
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   name   String
   active Boolean @default(true)
 
@@ -192,11 +243,15 @@ model Cadence {
   steps       CadenceStep[]
   enrollments CadenceEnrollment[]
 
+  @@index([tenantId])
   @@map("cadences")
 }
 
 model CadenceStep {
   id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   cadenceId String
   cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
@@ -214,12 +269,16 @@ model CadenceStep {
   notes String?
 
   @@unique([cadenceId, order])
+  @@index([tenantId])
   @@index([cadenceId])
   @@map("cadence_steps")
 }
 
 model CadenceEnrollment {
   id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   cadenceId String
   cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
@@ -233,6 +292,7 @@ model CadenceEnrollment {
   enrolledAt DateTime @default(now())
 
   @@unique([cadenceId, personId])
+  @@index([tenantId])
   @@index([personId])
   @@map("cadence_enrollments")
 }
@@ -250,6 +310,9 @@ enum CallOutcome {
 
 model Call {
   id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Nullable — a call isn't always tied to a known prospect yet (e.g. a
   /// Twilio credential/caller-ID verification call placed via /calls/test).
@@ -277,6 +340,7 @@ model Call {
   endedAt     DateTime?
   createdAt   DateTime  @default(now())
 
+  @@index([tenantId])
   @@index([personId])
   @@map("calls")
 }
@@ -290,6 +354,9 @@ enum SignalCategory {
 
 model Signal {
   id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   category SignalCategory
 
@@ -314,6 +381,7 @@ model Signal {
   occurredAt DateTime @default(now())
   createdAt  DateTime @default(now())
 
+  @@index([tenantId])
   @@index([accountId])
   @@index([personId])
   @@map("signals")
@@ -338,6 +406,9 @@ enum ActivityType {
 model Activity {
   id String @id @default(uuid())
 
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   type ActivityType
 
   accountId String?
@@ -353,6 +424,7 @@ model Activity {
 
   createdAt DateTime @default(now())
 
+  @@index([tenantId])
   @@index([accountId])
   @@index([personId])
   @@index([userId])

@@ -28,18 +28,21 @@ export class CallsController {
   ) {}
 
   @Get()
-  findAll(@Query('personId') personId?: string) {
-    return this.calls.findAll(personId);
+  findAll(
+    @Query('personId') personId: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.calls.findAll(user.tenantId, personId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.calls.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.calls.findOne(id, user.tenantId);
   }
 
   @Post('test')
   test(@Body() dto: CreateTestCallDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.calls.placeTestCall(dto.to, user.userId);
+    return this.calls.placeTestCall(dto.to, user.userId, user.tenantId);
   }
 
   // Mints a short-lived Voice Access Token for the browser softphone
@@ -83,6 +86,6 @@ export class CallsController {
     @Body() dto: UpdateCallOutcomeDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.calls.updateOutcome(id, dto, user.userId);
+    return this.calls.updateOutcome(id, dto, user.userId, user.tenantId);
   }
 }

@@ -10,13 +10,13 @@ export class AccountsController {
   constructor(private readonly accounts: AccountsService) {}
 
   @Get()
-  findAll() {
-    return this.accounts.findAll();
+  findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.accounts.findAll(user.tenantId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.accounts.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.accounts.findOne(id, user.tenantId);
   }
 
   @Post()
@@ -24,7 +24,7 @@ export class AccountsController {
     @Body() dto: CreateAccountDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.accounts.create(dto, user.userId);
+    return this.accounts.create(dto, user.userId, user.tenantId);
   }
 
   @Patch(':id')
@@ -33,6 +33,6 @@ export class AccountsController {
     @Body() dto: UpdateAccountDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.accounts.update(id, dto, user.userId);
+    return this.accounts.update(id, dto, user.userId, user.tenantId);
   }
 }

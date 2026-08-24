@@ -11,23 +11,30 @@ export class CadencesController {
   constructor(private readonly cadences: CadencesService) {}
 
   @Get()
-  findAll() {
-    return this.cadences.findAll();
+  findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.cadences.findAll(user.tenantId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.cadences.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.cadences.findOne(id, user.tenantId);
   }
 
   @Post()
-  create(@Body() dto: CreateCadenceDto) {
-    return this.cadences.create(dto);
+  create(
+    @Body() dto: CreateCadenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cadences.create(dto, user.tenantId);
   }
 
   @Post(':id/steps')
-  addStep(@Param('id') id: string, @Body() dto: CreateCadenceStepDto) {
-    return this.cadences.addStep(id, dto);
+  addStep(
+    @Param('id') id: string,
+    @Body() dto: CreateCadenceStepDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cadences.addStep(id, dto, user.tenantId);
   }
 
   @Post(':id/enrollments')
@@ -36,6 +43,6 @@ export class CadencesController {
     @Body() dto: CreateEnrollmentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.cadences.enroll(id, dto, user.userId);
+    return this.cadences.enroll(id, dto, user.userId, user.tenantId);
   }
 }
