@@ -22,6 +22,7 @@ export type Person = {
   phone: string | null;
   linkedinUrl: string | null;
   influenceLevel: InfluenceLevel | null;
+  cadenceEnrollments: { cadence: { id: string; name: string } }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -114,5 +115,24 @@ export function enrollPersonInCadence(
   return request(`/cadences/${cadenceId}/enrollments`, accessToken, {
     method: "POST",
     body: JSON.stringify({ personId }),
+  });
+}
+
+export type ImportPeopleResult = {
+  created: number;
+  merged: number;
+  skipped: number;
+  enrolledInCadence: number;
+  errors: string[];
+};
+
+export function importPeople(
+  csv: string,
+  cadenceId: string | undefined,
+  accessToken: string,
+): Promise<ImportPeopleResult> {
+  return request<ImportPeopleResult>("/people/import", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ csv, cadenceId: cadenceId || undefined }),
   });
 }

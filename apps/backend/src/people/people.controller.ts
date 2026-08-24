@@ -10,6 +10,7 @@ import {
 import { PeopleService } from './people.service';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePersonDto } from './dto/update-person.dto';
+import { ImportPeopleDto } from './dto/import-people.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
@@ -33,6 +34,19 @@ export class PeopleController {
   @Post()
   create(@Body() dto: CreatePersonDto, @CurrentUser() user: AuthenticatedUser) {
     return this.people.create(dto, user.userId, user.tenantId);
+  }
+
+  @Post('import')
+  importCsv(
+    @Body() dto: ImportPeopleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.people.importFromCsv(
+      dto.csv,
+      dto.cadenceId,
+      user.userId,
+      user.tenantId,
+    );
   }
 
   @Patch(':id')

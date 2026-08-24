@@ -15,12 +15,9 @@ function initialsFrom(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-function identifiersFor(person: Person): string {
-  const parts: string[] = [];
-  if (person.phone) parts.push("☎");
-  if (person.email) parts.push("@");
-  if (person.linkedinUrl) parts.push("in");
-  return parts.length > 0 ? parts.join(" · ") : "—";
+function cadencesFor(person: Person): string {
+  if (person.cadenceEnrollments.length === 0) return "—";
+  return person.cadenceEnrollments.map((e) => e.cadence.name).join(", ");
 }
 
 export function PeopleTable({
@@ -51,8 +48,10 @@ export function PeopleTable({
             </Th>
             <Th>Prospect</Th>
             <Th>Conta</Th>
-            <Th>Identificadores</Th>
+            <Th>Celular</Th>
+            <Th>LinkedIn</Th>
             <Th>Nível de influência</Th>
+            <Th>Cadências</Th>
           </Tr>
         </Thead>
         <Tbody>
@@ -74,10 +73,33 @@ export function PeopleTable({
                 />
               </Td>
               <Td>{person.account.name}</Td>
-              <Td>{identifiersFor(person)}</Td>
+              <Td>
+                {person.phone ? (
+                  <a href={`tel:${person.phone}`} className="text-accent hover:underline">
+                    {person.phone}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </Td>
+              <Td>
+                {person.linkedinUrl ? (
+                  <a
+                    href={person.linkedinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    Perfil
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </Td>
               <Td>
                 {person.influenceLevel ? INFLUENCE_LABEL[person.influenceLevel] : "—"}
               </Td>
+              <Td>{cadencesFor(person)}</Td>
             </Tr>
           ))}
         </Tbody>
