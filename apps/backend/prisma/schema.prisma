@@ -40,6 +40,7 @@ model Tenant {
   accountResearch    AccountResearch[]
   goals              Goal[]
   clientCompanies    ClientCompany[]
+  dialBatches        DialBatch[]
 
   @@map("tenants")
 }
@@ -81,6 +82,7 @@ model User {
   activities    Activity[]
   calls         Call[]
   goals         Goal[]
+  dialBatches   DialBatch[]
 
   @@index([tenantId])
   @@map("users")
@@ -286,6 +288,7 @@ model Cadence {
 
   steps       CadenceStep[]
   enrollments CadenceEnrollment[]
+  dialBatches DialBatch[]
 
   @@index([tenantId])
   @@index([clientCompanyId])
@@ -371,6 +374,51 @@ enum NotInterestedReason {
   DOES_NOT_WANT_TO_TALK
 }
 
+// One dial batch = up to 3 prospects dialed simultaneously from one click of
+// "Iniciar discagem" (2026-08-25, v1 fixed at 3 lines — not yet configurable
+// per tenant). winnerCallSid is the compare-and-swap field that decides the
+// AMD race: whichever leg's async AMD callback first UPDATEs this row from
+// null wins and gets bridged to the BDR's conference; every other leg that
+// tries after that finds it already set and hangs up instead.
+model DialBatch {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Twilio Conference room name (e.g. "batch-<id>") — the BDR's browser
+  /// leg and whichever outbound leg wins the race both join this room.
+  conferenceName String @unique
+
+  /// Set via compare-and-swap once a leg's AMD callback confirms a human —
+  /// null means no winner yet (or every leg lost: machine/no-answer/busy).
+  winnerCallSid String?
+
+  createdAt DateTime @default(now())
+
+  calls Call[]
+
+  @@index([tenantId])
+  @@index([cadenceId])
+  @@map("dial_batches")
+}
+
+enum ParallelLegStatus {
+  RINGING
+  MACHINE_DETECTED
+  NO_ANSWER
+  BUSY
+  FAILED
+  CONNECTED
+  ABANDONED
+}
+
 model Call {
   id String @id @default(uuid())
 
@@ -430,11 +478,29 @@ model Call {
   /// Dial spec — null forever for those, not just "not yet".
   aiFeedback Json?
 
+  /// Set only for a leg originated as part of a parallel dial batch — null
+  /// for every call placed the old single-line way.
+  dialBatchId String?
+  dialBatch   DialBatch? @relation(fields: [dialBatchId], references: [id], onDelete: SetNull)
+
+  /// Live status of one leg within a dial batch — null for non-parallel
+  /// calls. Drives the Dialer's "N linhas discando" queue rows.
+  parallelLegStatus ParallelLegStatus?
+
+  /// True for a losing leg the system hung up because another leg in the
+  /// same batch already connected to a human first — never a BDR decision,
+  /// never gets an outcome. Distinct from a normal outcome because it isn't
+  /// a classification of a conversation; it's a system event. Counted
+  /// separately for the abandonment-rate figure (Dial spec, 2026-08-25 —
+  /// measured only in v1, no automatic cutoff yet).
+  abandonedByParallelDial Boolean @default(false)
+
   tasks Task[]
 
   @@index([tenantId])
   @@index([personId])
   @@index([userId])
+  @@index([dialBatchId])
   @@map("calls")
 }
 

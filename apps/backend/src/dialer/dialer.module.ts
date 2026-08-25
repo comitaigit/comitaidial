@@ -7,5 +7,6 @@ import { SuppressionModule } from '../suppression/suppression.module';
   imports: [SuppressionModule],
   controllers: [DialerController],
   providers: [DialerService],
+  exports: [DialerService],
 })
 export class DialerModule {}
