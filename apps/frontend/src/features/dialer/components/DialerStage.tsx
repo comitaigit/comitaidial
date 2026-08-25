@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { QueueTable } from "@/features/dialer/components/QueueTable";
 import { ResearchCard } from "@/features/dialer/components/ResearchCard";
+import { CadencePicker } from "@/features/dialer/components/CadencePicker";
 import { useDialerStage } from "@/features/dialer/hooks/useDialerStage";
 import type { SoftphoneStatus } from "@/features/dialer/hooks/useSoftphone";
 
@@ -19,6 +20,7 @@ const STATUS_LABEL: Record<SoftphoneStatus, string> = {
 export function DialerStage() {
   const {
     softphone,
+    cadencePicker,
     queue,
     research,
     currentPerson,
@@ -38,11 +40,23 @@ export function DialerStage() {
         ? "Número inválido"
         : STATUS_LABEL[softphone.status];
 
-  const canCall = softphone.status === "ready" && !!currentPerson && !awaitingOutcome;
+  const canCall =
+    softphone.status === "ready" &&
+    !!currentPerson &&
+    !awaitingOutcome &&
+    !cadencePicker.isIncomplete;
   const canHangup = softphone.status === "connecting" || softphone.status === "in-call";
 
   return (
     <div className="grid gap-3.5">
+      <CadencePicker
+        cadences={cadencePicker.cadences}
+        isLoading={cadencePicker.isLoading}
+        selectedCadenceId={cadencePicker.selectedCadenceId}
+        onChange={cadencePicker.setSelectedCadenceId}
+        isIncomplete={cadencePicker.isIncomplete}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-line bg-panel p-3.5">
         <div className="flex items-center gap-2.5">
           <Button variant="primary" onClick={startCall} disabled={!canCall}>

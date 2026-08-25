@@ -10,6 +10,8 @@ export type Cadence = {
   id: string;
   name: string;
   active: boolean;
+  clientCompanyId: string | null;
+  clientCompany: { id: string; name: string; mainProduct: string } | null;
   createdAt: string;
   updatedAt: string;
   _count: { steps: number; enrollments: number };
@@ -18,6 +20,13 @@ export type Cadence = {
 export type CreateCadenceInput = {
   name: string;
   active?: boolean;
+  clientCompanyId?: string;
+};
+
+export type UpdateCadenceInput = {
+  name?: string;
+  active?: boolean;
+  clientCompanyId?: string | null;
 };
 
 export type CadenceStepType =
@@ -89,12 +98,31 @@ export function listCadences(accessToken: string): Promise<Cadence[]> {
   return request<Cadence[]>("/cadences", accessToken);
 }
 
+export type ClientCompanyOption = { id: string; name: string; mainProduct: string };
+
+export function listClientCompaniesForCadence(
+  accessToken: string,
+): Promise<ClientCompanyOption[]> {
+  return request<ClientCompanyOption[]>("/client-companies", accessToken);
+}
+
 export function createCadence(
   input: CreateCadenceInput,
   accessToken: string,
 ): Promise<Cadence> {
   return request<Cadence>("/cadences", accessToken, {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCadence(
+  id: string,
+  input: UpdateCadenceInput,
+  accessToken: string,
+): Promise<Cadence> {
+  return request<Cadence>(`/cadences/${id}`, accessToken, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

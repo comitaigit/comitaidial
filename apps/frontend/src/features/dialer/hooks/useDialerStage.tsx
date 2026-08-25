@@ -6,6 +6,7 @@ import { openModal, closeModal } from "@/features/shell/stores/modal-store";
 import { useSoftphone } from "@/features/dialer/hooks/useSoftphone";
 import { useDialerQueue } from "@/features/dialer/hooks/useDialerQueue";
 import { useResearchCard } from "@/features/dialer/hooks/useResearchCard";
+import { useCadencePicker } from "@/features/dialer/hooks/useCadencePicker";
 import { getLatestCallForPerson } from "@/features/dialer/data/dialer-api";
 import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
@@ -18,7 +19,8 @@ const RETRY_WINDOW_SECONDS = 2;
 export function useDialerStage() {
   const accessToken = useSessionStore((s) => s.accessToken);
   const softphone = useSoftphone();
-  const queue = useDialerQueue();
+  const cadencePicker = useCadencePicker();
+  const queue = useDialerQueue(cadencePicker.selectedCadenceId);
   const research = useResearchCard();
 
   const [calledPersonId, setCalledPersonId] = useState<string | null>(null);
@@ -36,7 +38,11 @@ export function useDialerStage() {
   // realmente atender (não quando a linha começa a tocar).
   useEffect(() => {
     if (softphone.status === "in-call" && currentPerson) {
-      void research.load(currentPerson.accountId, currentPerson.role);
+      void research.load(
+        currentPerson.accountId,
+        currentPerson.role,
+        currentPerson.clientCompanyId,
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the connect transition
   }, [softphone.status]);
@@ -146,6 +152,7 @@ export function useDialerStage() {
 
   return {
     softphone,
+    cadencePicker,
     queue,
     research,
     currentPerson,

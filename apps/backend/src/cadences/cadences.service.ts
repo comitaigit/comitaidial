@@ -3,14 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  ActivityType,
-  Cadence,
-  CadenceEnrollment,
-  CadenceStep,
-} from '@prisma/client';
+import { ActivityType, CadenceEnrollment, CadenceStep } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCadenceDto } from './dto/create-cadence.dto';
+import { UpdateCadenceDto } from './dto/update-cadence.dto';
 import { CreateCadenceStepDto } from './dto/create-cadence-step.dto';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 
@@ -22,14 +18,20 @@ export class CadencesService {
     return this.prisma.cadence.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { steps: true, enrollments: true } } },
+      include: {
+        clientCompany: true,
+        _count: { select: { steps: true, enrollments: true } },
+      },
     });
   }
 
   async findOne(id: string, tenantId: string) {
     const cadence = await this.prisma.cadence.findFirst({
       where: { id, tenantId },
-      include: { steps: { orderBy: { order: 'asc' } } },
+      include: {
+        clientCompany: true,
+        steps: { orderBy: { order: 'asc' } },
+      },
     });
     if (!cadence) throw new NotFoundException('Cadence not found.');
     return cadence;
@@ -38,8 +40,24 @@ export class CadencesService {
   // Template setup, not a per-contact action — doesn't need an Activity
   // audit record (see cadences/steps' schema.prisma comment: the audit
   // rule covers actions taken on a Person/Account, not sequence authoring).
-  create(dto: CreateCadenceDto, tenantId: string): Promise<Cadence> {
-    return this.prisma.cadence.create({ data: { ...dto, tenantId } });
+  create(dto: CreateCadenceDto, tenantId: string) {
+    return this.prisma.cadence.create({
+      data: { ...dto, tenantId },
+      include: { clientCompany: true },
+    });
+  }
+
+  async update(id: string, dto: UpdateCadenceDto, tenantId: string) {
+    const existing = await this.prisma.cadence.findFirst({
+      where: { id, tenantId },
+    });
+    if (!existing) throw new NotFoundException('Cadence not found.');
+
+    return this.prisma.cadence.update({
+      where: { id },
+      data: dto,
+      include: { clientCompany: true },
+    });
   }
 
   async addStep(

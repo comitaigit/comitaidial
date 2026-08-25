@@ -15,6 +15,7 @@ import { OverviewModule } from './overview/overview.module';
 import { SuppressionModule } from './suppression/suppression.module';
 import { DialerModule } from './dialer/dialer.module';
 import { GoalsModule } from './goals/goals.module';
+import { ClientCompaniesModule } from './client-companies/client-companies.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -43,6 +44,7 @@ import { validateEnv } from './config/env.validation';
     SuppressionModule,
     DialerModule,
     GoalsModule,
+    ClientCompaniesModule,
   ],
   controllers: [AppController],
   providers: [

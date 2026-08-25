@@ -7,21 +7,22 @@ import { getQueue, type QueueItem } from "@/features/dialer/data/dialer-api";
 // The queue is always worked from the front — queue[0] is "current". No
 // separate index: removing/requeuing the front row is enough to advance,
 // and avoids a second piece of state that could drift from the array.
-export function useDialerQueue() {
+// cadenceId is null until the BDR picks which cadence to work — the queue
+// stays empty until then (no more tenant-wide fila).
+export function useDialerQueue(cadenceId: string | null) {
   const accessToken = useSessionStore((s) => s.accessToken);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !cadenceId) return;
     let cancelled = false;
 
     async function load() {
-      setStatus("loading");
       setError(null);
       try {
-        const items = await getQueue(accessToken as string);
+        const items = await getQueue(cadenceId as string, accessToken as string);
         if (cancelled) return;
         setQueue(items);
         setStatus("loaded");
@@ -36,7 +37,7 @@ export function useDialerQueue() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, cadenceId]);
 
   // Definitive outcome (or número inexistente) — the contact is done, drop it.
   const removeCurrentAndAdvance = useCallback(() => {
@@ -49,12 +50,17 @@ export function useDialerQueue() {
     setQueue((prev) => (prev.length > 0 ? [...prev.slice(1), prev[0]] : prev));
   }, []);
 
+  // No cadenceId selected — always render as empty/idle regardless of
+  // whatever a previously-selected cadence's fetch left behind, without
+  // needing an effect-driven reset.
+  const effectiveQueue = cadenceId ? queue : [];
+
   return {
-    queue,
-    status,
-    error,
-    currentPerson: queue[0] ?? null,
-    remaining: queue.length,
+    queue: effectiveQueue,
+    status: cadenceId ? status : "idle",
+    error: cadenceId ? error : null,
+    currentPerson: effectiveQueue[0] ?? null,
+    remaining: effectiveQueue.length,
     removeCurrentAndAdvance,
     requeueCurrent,
   };

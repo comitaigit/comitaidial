@@ -11,12 +11,12 @@ export function useResearchCard() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
-    async (accountId: string, personRole: string | null) => {
+    async (accountId: string, personRole: string | null, clientCompanyId: string) => {
       if (!accessToken) return;
       setStatus("loading");
       setError(null);
       try {
-        const result = await getResearch(accountId, personRole, accessToken);
+        const result = await getResearch(accountId, personRole, clientCompanyId, accessToken);
         setResearch(result);
         setStatus("loaded");
       } catch (err) {

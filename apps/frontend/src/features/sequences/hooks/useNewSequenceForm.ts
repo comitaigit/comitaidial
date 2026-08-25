@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { closeModal } from "@/features/shell/stores/modal-store";
 import { useToast } from "@/features/shell/hooks/useToast";
 import { useSessionStore } from "@/features/shell/stores/session-store";
@@ -8,7 +8,9 @@ import { useCadencesStore } from "@/features/sequences/stores/cadences-store";
 import {
   addCadenceStep,
   createCadence,
+  listClientCompaniesForCadence,
   type CadenceStepType,
+  type ClientCompanyOption,
   type CreateCadenceStepInput,
 } from "@/features/sequences/data/cadences-api";
 
@@ -18,7 +20,16 @@ export function useNewSequenceForm() {
   const addCadence = useCadencesStore((s) => s.addCadence);
 
   const [name, setName] = useState("Nova cadência multicanal");
+  const [clientCompanyId, setClientCompanyId] = useState("");
+  const [clientCompanies, setClientCompanies] = useState<ClientCompanyOption[]>([]);
   const [steps, setSteps] = useState<CreateCadenceStepInput[]>([]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    listClientCompaniesForCadence(accessToken)
+      .then(setClientCompanies)
+      .catch(() => setClientCompanies([]));
+  }, [accessToken]);
 
   const [draftType, setDraftType] = useState<CadenceStepType>("CALL");
   const [draftDayOffset, setDraftDayOffset] = useState("0");
@@ -54,7 +65,10 @@ export function useNewSequenceForm() {
 
     setSubmitting(true);
     try {
-      const cadence = await createCadence({ name: name.trim() }, accessToken);
+      const cadence = await createCadence(
+        { name: name.trim(), clientCompanyId: clientCompanyId || undefined },
+        accessToken,
+      );
       for (const step of steps) {
         await addCadenceStep(cadence.id, step, accessToken);
       }
@@ -75,6 +89,9 @@ export function useNewSequenceForm() {
   return {
     name,
     setName,
+    clientCompanyId,
+    setClientCompanyId,
+    clientCompanies,
     steps,
     draftType,
     setDraftType,

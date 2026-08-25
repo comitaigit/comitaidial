@@ -39,6 +39,7 @@ model Tenant {
   tasks              Task[]
   accountResearch    AccountResearch[]
   goals              Goal[]
+  clientCompanies    ClientCompany[]
 
   @@map("tenants")
 }
@@ -177,7 +178,7 @@ model Account {
   signals    Signal[]
   activities Activity[]
   tasks      Task[]
-  research   AccountResearch?
+  research   AccountResearch[]
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -236,6 +237,35 @@ enum CadenceStepType {
   LINKEDIN_MESSAGE
 }
 
+/// The company/product a cadence is prospecting on behalf of — Comitai runs
+/// outbound for multiple client companies, and the AI research/battlecards
+/// need to speak to whichever one a given cadence represents, not always
+/// Comitai's own positioning. A cadence with no clientCompanyId is
+/// "incomplete": the Dialer refuses to start dialing it until this is set,
+/// per the founder's 2026-08-25 decision — no silent fallback to a default.
+model ClientCompany {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  mainProduct String
+
+  /// Free text — differentiators, positioning, whatever helps the LLM write
+  /// a sharper battlecard. Optional; the prompt works with just name+product.
+  positioning String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadences        Cadence[]
+  accountResearch AccountResearch[]
+
+  @@index([tenantId])
+  @@map("client_companies")
+}
+
 model Cadence {
   id String @id @default(uuid())
 
@@ -245,6 +275,12 @@ model Cadence {
   name   String
   active Boolean @default(true)
 
+  /// Nullable — see ClientCompany's doc comment. SetNull (not Cascade) on
+  /// delete: losing the client company record shouldn't destroy the
+  /// cadence, just knock it back to "incomplete".
+  clientCompanyId String?
+  clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -252,6 +288,7 @@ model Cadence {
   enrollments CadenceEnrollment[]
 
   @@index([tenantId])
+  @@index([clientCompanyId])
   @@map("cadences")
 }
 
@@ -551,15 +588,24 @@ model SuppressedNumber {
 /// indicators, call script, objections, battlecards) — generated once on
 /// first connected call and reused on every subsequent connection/callback
 /// for that Account, per the Dial spec's "pesquisa profunda só pós-conexão,
-/// nunca regenerada à toa" rule.
+/// nunca regenerada à toa" rule. Cached per (account, clientCompany), not
+/// per account alone — the same prospect account can be worked by cadences
+/// selling different client companies' products, and each needs its own
+/// framing (2026-08-25). clientCompanyId is nullable only so pre-existing
+/// rows from before this feature don't need a backfill guess; new rows
+/// always carry one, since the Dialer no longer starts a cadence without
+/// a client company set.
 model AccountResearch {
   id String @id @default(uuid())
 
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  accountId String  @unique
+  accountId String
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  clientCompanyId String?
+  clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
 
   companyOverview String
   roleImportance  String
@@ -574,7 +620,9 @@ model AccountResearch {
 
   generatedAt DateTime @default(now())
 
+  @@unique([accountId, clientCompanyId])
   @@index([tenantId])
+  @@index([clientCompanyId])
   @@map("account_research")
 }
 

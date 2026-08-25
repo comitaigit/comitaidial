@@ -9,6 +9,7 @@ type CadencesState = {
   error: string | null;
   fetchCadences: (accessToken: string) => Promise<void>;
   addCadence: (cadence: Cadence) => void;
+  replaceCadence: (cadence: Cadence) => void;
 };
 
 export const useCadencesStore = create<CadencesState>((set) => ({
@@ -32,4 +33,12 @@ export const useCadencesStore = create<CadencesState>((set) => ({
   // adding drafted steps) rather than this store re-fetching the list.
   addCadence: (cadence) =>
     set((state) => ({ cadences: [cadence, ...state.cadences] })),
+  // The update response doesn't include _count either — carry over whatever
+  // the list already had for this cadence rather than losing it.
+  replaceCadence: (cadence) =>
+    set((state) => ({
+      cadences: state.cadences.map((c) =>
+        c.id === cadence.id ? { ...cadence, _count: c._count } : c,
+      ),
+    })),
 }));

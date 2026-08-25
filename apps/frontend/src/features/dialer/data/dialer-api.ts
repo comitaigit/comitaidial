@@ -26,6 +26,16 @@ export type QueueItem = {
   accountName: string;
   priority: AccountPriority | null;
   lastActivity: string | null;
+  cadenceId: string;
+  clientCompanyId: string;
+};
+
+export type DialerCadence = {
+  id: string;
+  name: string;
+  clientCompanyId: string | null;
+  clientCompany: { id: string; name: string; mainProduct: string } | null;
+  _count: { enrollments: number };
 };
 
 export type CallOutcome =
@@ -118,17 +128,26 @@ export function getVoiceToken(accessToken: string): Promise<{ token: string }> {
   return request<{ token: string }>("/calls/voice-token", accessToken, { method: "POST" });
 }
 
-export function getQueue(accessToken: string): Promise<QueueItem[]> {
-  return request<QueueItem[]>("/dialer/queue", accessToken);
+export function listDialerCadences(accessToken: string): Promise<DialerCadence[]> {
+  return request<DialerCadence[]>("/cadences", accessToken);
+}
+
+export function getQueue(cadenceId: string, accessToken: string): Promise<QueueItem[]> {
+  return request<QueueItem[]>(
+    `/dialer/queue?cadenceId=${encodeURIComponent(cadenceId)}`,
+    accessToken,
+  );
 }
 
 export function getResearch(
   accountId: string,
   personRole: string | null,
+  clientCompanyId: string,
   accessToken: string,
 ): Promise<AccountResearch> {
-  const query = personRole ? `?personRole=${encodeURIComponent(personRole)}` : "";
-  return request<AccountResearch>(`/dialer/research/${accountId}${query}`, accessToken);
+  const params = new URLSearchParams({ clientCompanyId });
+  if (personRole) params.set("personRole", personRole);
+  return request<AccountResearch>(`/dialer/research/${accountId}?${params}`, accessToken);
 }
 
 export async function getLatestCallForPerson(

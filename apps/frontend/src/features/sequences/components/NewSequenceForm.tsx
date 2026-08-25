@@ -21,6 +21,9 @@ export function NewSequenceForm() {
   const {
     name,
     setName,
+    clientCompanyId,
+    setClientCompanyId,
+    clientCompanies,
     steps,
     draftType,
     setDraftType,
@@ -42,6 +45,26 @@ export function NewSequenceForm() {
       <Field label="Nome">
         <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
+
+      <Field label="Empresa/produto">
+        <Select
+          value={clientCompanyId}
+          onChange={(e) => setClientCompanyId(e.target.value)}
+        >
+          <option value="">Selecionar depois</option>
+          {clientCompanies.map((company) => (
+            <option key={company.id} value={company.id}>
+              {company.name} — {company.mainProduct}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {!clientCompanyId ? (
+        <p className="mb-3 text-[11px] text-muted">
+          Sem isso, o Dialer não deixa discar esta cadência — pode cadastrar novas
+          empresas/produtos no Workspace.
+        </p>
+      ) : null}
 
       {steps.length > 0 && (
         <div className="mb-3 grid gap-1.5">

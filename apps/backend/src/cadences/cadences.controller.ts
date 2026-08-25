@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { CadencesService } from './cadences.service';
 import { CreateCadenceDto } from './dto/create-cadence.dto';
+import { UpdateCadenceDto } from './dto/update-cadence.dto';
 import { CreateCadenceStepDto } from './dto/create-cadence-step.dto';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -26,6 +27,15 @@ export class CadencesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.cadences.create(dto, user.tenantId);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCadenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.cadences.update(id, dto, user.tenantId);
   }
 
   @Post(':id/steps')

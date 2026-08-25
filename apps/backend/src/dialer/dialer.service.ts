@@ -1,6 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccountPriority, InfluenceLevel } from '@prisma/client';
+import { AccountPriority, ClientCompany, InfluenceLevel } from '@prisma/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from '../suppression/suppression.service';
@@ -15,6 +19,8 @@ export type QueueItem = {
   accountName: string;
   priority: AccountPriority | null;
   lastActivity: string | null;
+  cadenceId: string;
+  clientCompanyId: string;
 };
 
 export type ResearchObjection = { objection: string; response: string };
@@ -39,12 +45,6 @@ const PRIORITY_RANK: Record<AccountPriority, number> = {
   MEDIUM: 1,
   LOW: 2,
 };
-
-// The Comitai Dialer's own positioning, given to the LLM as context so
-// battlecards/call scripts compare against something real instead of
-// hallucinating a generic sales tool.
-const PRODUCT_CONTEXT =
-  'Comitai Dialer: console de vendas outbound multicanal — discador com softphone no navegador, pesquisa de contas via IA, cadências multicanal (ligação, e-mail, WhatsApp, LinkedIn) e histórico unificado de interações.';
 
 function extractJson(text: string): Record<string, unknown> {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
@@ -73,12 +73,33 @@ export class DialerService {
     });
   }
 
-  // Real dialable prospects for this tenant — phone required, suppressed
+  // Dialable prospects enrolled in one cadence — phone required, suppressed
   // numbers excluded, ordered by account priority. Discagem paralela ainda
   // não existe: a fila é consumida um contato por vez pelo softphone.
-  async getQueue(tenantId: string): Promise<QueueItem[]> {
+  // A cadência precisa ter uma empresa/produto configurada (Workspace) antes
+  // de poder ser discada — sem isso os cards de IA não teriam o que dizer,
+  // e não existe mais fallback pro posicionamento fixo da Comitai
+  // (2026-08-25).
+  async getQueue(tenantId: string, cadenceId: string): Promise<QueueItem[]> {
+    const cadence = await this.prisma.cadence.findFirst({
+      where: { id: cadenceId, tenantId },
+    });
+    if (!cadence) throw new NotFoundException('Cadence not found.');
+    if (!cadence.clientCompanyId) {
+      throw new BadRequestException(
+        'Configure a empresa/produto desta cadência no Workspace antes de discar.',
+      );
+    }
+
+    const enrollments = await this.prisma.cadenceEnrollment.findMany({
+      where: { cadenceId, tenantId, active: true },
+      select: { personId: true },
+    });
+    const enrolledIds = enrollments.map((e) => e.personId);
+    if (enrolledIds.length === 0) return [];
+
     const people = await this.prisma.person.findMany({
-      where: { tenantId, phone: { not: null } },
+      where: { tenantId, id: { in: enrolledIds }, phone: { not: null } },
       include: {
         account: { select: { id: true, name: true, priority: true } },
       },
@@ -115,6 +136,8 @@ export class DialerService {
         accountName: p.account.name,
         priority: p.account.priority,
         lastActivity: lastActivityByPerson.get(p.id) ?? null,
+        cadenceId: cadence.id,
+        clientCompanyId: cadence.clientCompanyId as string,
       }))
       .sort((a, b) => {
         const rankA = a.priority ? PRIORITY_RANK[a.priority] : 3;
@@ -123,16 +146,20 @@ export class DialerService {
       });
   }
 
-  // Deep research for the account, generated once and cached — a callback
-  // reconnect reuses the same card instead of re-billing the LLM, per the
-  // Dial spec's pré-call leve / pós-conexão profunda cost-control rule.
+  // Deep research for the account, generated once per (account, client
+  // company) and cached — a callback reconnect reuses the same card instead
+  // of re-billing the LLM, per the Dial spec's pré-call leve / pós-conexão
+  // profunda cost-control rule. Keyed by clientCompanyId too (not just
+  // accountId) since the same prospect account can be worked by cadences
+  // selling different products — each needs its own framing.
   async getResearch(
     accountId: string,
     personRole: string | null,
+    clientCompanyId: string,
     tenantId: string,
   ): Promise<AccountResearchDto> {
     const cached = await this.prisma.accountResearch.findFirst({
-      where: { accountId, tenantId },
+      where: { accountId, clientCompanyId, tenantId },
     });
     if (cached) return this.shapeResearch(cached);
 
@@ -141,15 +168,23 @@ export class DialerService {
     });
     if (!account) throw new NotFoundException('Account not found.');
 
+    const clientCompany = await this.prisma.clientCompany.findFirst({
+      where: { id: clientCompanyId, tenantId },
+    });
+    if (!clientCompany) {
+      throw new NotFoundException('Client company not found.');
+    }
+
     const generated = await this.generateResearch(
       account.name,
       account.segment,
       personRole,
+      clientCompany,
     );
 
     const saved = await this.prisma.accountResearch.upsert({
-      where: { accountId },
-      create: { tenantId, accountId, ...generated },
+      where: { accountId_clientCompanyId: { accountId, clientCompanyId } },
+      create: { tenantId, accountId, clientCompanyId, ...generated },
       update: { ...generated, generatedAt: new Date() },
     });
 
@@ -184,10 +219,15 @@ export class DialerService {
     accountName: string,
     segment: string | null,
     personRole: string | null,
+    clientCompany: Pick<ClientCompany, 'name' | 'mainProduct' | 'positioning'>,
   ) {
-    const prompt = `Você é um pesquisador de vendas B2B apoiando um BDR do Comitai Dialer antes/durante uma ligação.
+    const productContext = `${clientCompany.name}: ${clientCompany.mainProduct}.${
+      clientCompany.positioning ? ` ${clientCompany.positioning}` : ''
+    }`;
 
-Contexto do produto: ${PRODUCT_CONTEXT}
+    const prompt = `Você é um pesquisador de vendas B2B apoiando um BDR antes/durante uma ligação.
+
+Contexto do produto sendo vendido nesta ligação: ${productContext}
 
 Empresa prospectada: "${accountName}"${segment ? `, segmento "${segment}"` : ''}.
 ${personRole ? `Cargo do contato nesta ligação: "${personRole}".` : ''}
@@ -196,10 +236,10 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
 {
   "companyOverview": "1-2 frases sobre o que a empresa provavelmente faz, com base no nome/segmento.",
   "roleImportance": "1-2 frases sobre por que esse cargo importa para a empresa.",
-  "roleIndicators": "1-2 frases sobre indicadores típicos de um profissional nesse cargo e por que uma ferramenta de vendas outbound importa para ele.",
+  "roleIndicators": "1-2 frases sobre indicadores típicos de um profissional nesse cargo e por que o produto sendo vendido importa para ele.",
   "callScript": "um roteiro curto de abertura de ligação (3-4 frases), em português, tom consultivo, não robótico.",
   "objections": [{"objection": "objeção comum em português", "response": "como responder"}],
-  "battlecards": [{"competitor": "nome plausível de concorrente de ferramentas de vendas outbound", "theirStrength": "o que eles fazem bem", "ourEdge": "diferencial do Comitai Dialer"}]
+  "battlecards": [{"competitor": "nome plausível de concorrente de ${clientCompany.mainProduct}", "theirStrength": "o que eles fazem bem", "ourEdge": "diferencial de ${clientCompany.name}"}]
 }
 "objections" deve ter 2-3 itens. "battlecards" deve ter até 3 itens.`;
 
