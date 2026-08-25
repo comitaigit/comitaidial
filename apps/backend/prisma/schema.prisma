@@ -334,6 +334,12 @@ model CadenceEnrollment {
   currentStepOrder Int     @default(0)
   active           Boolean @default(true)
 
+  /// Manual position in the Dialer queue for this cadence, set by dragging
+  /// a row — null means "not manually placed yet", falls back to the
+  /// priority-based default order. Once any row in a cadence is dragged,
+  /// the whole cadence's queue is re-numbered so order is unambiguous.
+  queuePosition Int?
+
   enrolledAt DateTime @default(now())
 
   @@unique([cadenceId, personId])

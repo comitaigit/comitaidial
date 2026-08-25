@@ -99,7 +99,11 @@ export function DialerStage() {
       ) : null}
 
       <div className="grid gap-3.5 lg:grid-cols-[1.15fr_0.85fr]">
-        <QueueTable queue={queue.queue} currentStatusLabel={currentStatusLabel} />
+        <QueueTable
+          queue={queue.queue}
+          currentStatusLabel={currentStatusLabel}
+          onReorder={queue.moveItem}
+        />
         <ResearchCard research={research.research} status={research.status} error={research.error} />
       </div>
     </div>

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSessionStore } from "@/features/shell/stores/session-store";
-import { getQueue, type QueueItem } from "@/features/dialer/data/dialer-api";
+import { useToast } from "@/features/shell/hooks/useToast";
+import { getQueue, reorderQueue, type QueueItem } from "@/features/dialer/data/dialer-api";
 
 // The queue is always worked from the front — queue[0] is "current". No
 // separate index: removing/requeuing the front row is enough to advance,
@@ -11,6 +12,7 @@ import { getQueue, type QueueItem } from "@/features/dialer/data/dialer-api";
 // stays empty until then (no more tenant-wide fila).
 export function useDialerQueue(cadenceId: string | null) {
   const accessToken = useSessionStore((s) => s.accessToken);
+  const toast = useToast();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +52,35 @@ export function useDialerQueue(cadenceId: string | null) {
     setQueue((prev) => (prev.length > 0 ? [...prev.slice(1), prev[0]] : prev));
   }, []);
 
+  // Manual drag-and-drop reorder — same "whole new order is authoritative"
+  // contract as reordering a playlist. Index 0 (the row currently being
+  // worked) is never a valid source or target: only the "Pendente" rows
+  // behind it can be rearranged. Applies the new order immediately for a
+  // responsive drag, then persists it; a failed persist just gets a toast
+  // (the local order stands — worst case it's re-fetched as priority order
+  // on the next queue load, not silently wrong).
+  const moveItem = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex || fromIndex < 1 || toIndex < 1) return;
+      setQueue((prev) => {
+        if (fromIndex >= prev.length || toIndex >= prev.length) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, moved);
+
+        if (cadenceId && accessToken) {
+          const personIds = next.map((item) => item.personId);
+          reorderQueue(cadenceId, personIds, accessToken).catch(() => {
+            toast("Não foi possível salvar a nova ordem da fila.");
+          });
+        }
+
+        return next;
+      });
+    },
+    [cadenceId, accessToken, toast],
+  );
+
   // No cadenceId selected — always render as empty/idle regardless of
   // whatever a previously-selected cadence's fetch left behind, without
   // needing an effect-driven reset.
@@ -63,5 +94,6 @@ export function useDialerQueue(cadenceId: string | null) {
     remaining: effectiveQueue.length,
     removeCurrentAndAdvance,
     requeueCurrent,
+    moveItem,
   };
 }

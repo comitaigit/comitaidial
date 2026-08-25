@@ -93,10 +93,13 @@ export class DialerService {
 
     const enrollments = await this.prisma.cadenceEnrollment.findMany({
       where: { cadenceId, tenantId, active: true },
-      select: { personId: true },
+      select: { personId: true, queuePosition: true },
     });
     const enrolledIds = enrollments.map((e) => e.personId);
     if (enrolledIds.length === 0) return [];
+    const queuePositionByPerson = new Map(
+      enrollments.map((e) => [e.personId, e.queuePosition]),
+    );
 
     const people = await this.prisma.person.findMany({
       where: { tenantId, id: { in: enrolledIds }, phone: { not: null } },
@@ -140,10 +143,57 @@ export class DialerService {
         clientCompanyId: cadence.clientCompanyId as string,
       }))
       .sort((a, b) => {
+        // Manual order (set by dragging in the Dialer) wins outright once
+        // it exists — a row without a queuePosition sorts after every
+        // positioned row, then everything left falls back to the original
+        // priority-based default.
+        const posA = queuePositionByPerson.get(a.personId) ?? null;
+        const posB = queuePositionByPerson.get(b.personId) ?? null;
+        if (posA !== null && posB !== null) return posA - posB;
+        if (posA !== null) return -1;
+        if (posB !== null) return 1;
+
         const rankA = a.priority ? PRIORITY_RANK[a.priority] : 3;
         const rankB = b.priority ? PRIORITY_RANK[b.priority] : 3;
         return rankA - rankB;
       });
+  }
+
+  // Persists a manual drag-and-drop reorder of the queue — the whole new
+  // order is authoritative (same contract as reordering a playlist), so
+  // every enrollment in this cadence gets renumbered to match, not just the
+  // row that moved. A personId the client sent but that isn't (or is no
+  // longer) an active enrollment here is silently skipped.
+  async reorderQueue(
+    tenantId: string,
+    cadenceId: string,
+    personIds: string[],
+  ): Promise<void> {
+    const cadence = await this.prisma.cadence.findFirst({
+      where: { id: cadenceId, tenantId },
+    });
+    if (!cadence) throw new NotFoundException('Cadence not found.');
+
+    const enrollments = await this.prisma.cadenceEnrollment.findMany({
+      where: { cadenceId, tenantId, active: true },
+      select: { id: true, personId: true },
+    });
+    const enrollmentIdByPerson = new Map(
+      enrollments.map((e) => [e.personId, e.id]),
+    );
+
+    await this.prisma.$transaction(
+      personIds
+        .map((personId, index) => {
+          const enrollmentId = enrollmentIdByPerson.get(personId);
+          if (!enrollmentId) return null;
+          return this.prisma.cadenceEnrollment.update({
+            where: { id: enrollmentId },
+            data: { queuePosition: index },
+          });
+        })
+        .filter((op): op is NonNullable<typeof op> => op !== null),
+    );
   }
 
   // Deep research for the account, generated once per (account, client

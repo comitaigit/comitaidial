@@ -1,6 +1,10 @@
+"use client";
+
 import { Card } from "@/components/ui/Card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/Table";
 import { Tag } from "@/components/ui/Tag";
+import { cn } from "@/lib/cn";
+import { useQueueDragAndDrop } from "@/features/dialer/hooks/useQueueDragAndDrop";
 import type {
   AccountPriority,
   InfluenceLevel,
@@ -29,10 +33,15 @@ const PRIORITY_VARIANT: Record<AccountPriority, "bad" | "warn" | "default"> = {
 export function QueueTable({
   queue,
   currentStatusLabel,
+  onReorder,
 }: {
   queue: QueueItem[];
   currentStatusLabel: string;
+  onReorder: (fromIndex: number, toIndex: number) => void;
 }) {
+  const { dragIndex, overIndex, handleDragStart, handleDragOver, handleDrop, handleDragEnd } =
+    useQueueDragAndDrop(onReorder);
+
   return (
     <Card>
       <Table>
@@ -49,30 +58,48 @@ export function QueueTable({
           </Tr>
         </Thead>
         <Tbody>
-          {queue.map((item, index) => (
-            <Tr key={item.personId}>
-              <Td>
-                <Tag variant={index === 0 ? "info" : "default"}>
-                  {index === 0 ? currentStatusLabel : "Pendente"}
-                </Tag>
-              </Td>
-              <Td>{item.name}</Td>
-              <Td>{item.phone}</Td>
-              <Td>{item.persona ? PERSONA_LABEL[item.persona] : "—"}</Td>
-              <Td>{item.role ?? "—"}</Td>
-              <Td>{item.accountName}</Td>
-              <Td>{item.lastActivity ?? "—"}</Td>
-              <Td>
-                {item.priority ? (
-                  <Tag variant={PRIORITY_VARIANT[item.priority]}>
-                    {PRIORITY_LABEL[item.priority]}
-                  </Tag>
-                ) : (
-                  "—"
+          {queue.map((item, index) => {
+            const reorderable = index > 0;
+            return (
+              <Tr
+                key={item.personId}
+                draggable={reorderable}
+                onDragStart={reorderable ? () => handleDragStart(index) : undefined}
+                onDragOver={reorderable ? (e) => handleDragOver(index, e) : undefined}
+                onDrop={reorderable ? () => handleDrop(index) : undefined}
+                onDragEnd={reorderable ? handleDragEnd : undefined}
+                className={cn(
+                  reorderable && "cursor-grab active:cursor-grabbing",
+                  reorderable && dragIndex === index && "opacity-40",
+                  reorderable &&
+                    overIndex === index &&
+                    dragIndex !== index &&
+                    "border-t-2 border-t-accent",
                 )}
-              </Td>
-            </Tr>
-          ))}
+              >
+                <Td>
+                  <Tag variant={index === 0 ? "info" : "default"}>
+                    {index === 0 ? currentStatusLabel : "Pendente"}
+                  </Tag>
+                </Td>
+                <Td>{item.name}</Td>
+                <Td>{item.phone}</Td>
+                <Td>{item.persona ? PERSONA_LABEL[item.persona] : "—"}</Td>
+                <Td>{item.role ?? "—"}</Td>
+                <Td>{item.accountName}</Td>
+                <Td>{item.lastActivity ?? "—"}</Td>
+                <Td>
+                  {item.priority ? (
+                    <Tag variant={PRIORITY_VARIANT[item.priority]}>
+                      {PRIORITY_LABEL[item.priority]}
+                    </Tag>
+                  ) : (
+                    "—"
+                  )}
+                </Td>
+              </Tr>
+            );
+          })}
         </Tbody>
       </Table>
     </Card>

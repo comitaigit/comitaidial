@@ -139,6 +139,19 @@ export function getQueue(cadenceId: string, accessToken: string): Promise<QueueI
   );
 }
 
+// Persists a manual drag-and-drop reorder — personIds is the full new
+// front-to-back order, same contract as reordering a playlist.
+export function reorderQueue(
+  cadenceId: string,
+  personIds: string[],
+  accessToken: string,
+): Promise<void> {
+  return request<void>("/dialer/queue/reorder", accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ cadenceId, personIds }),
+  });
+}
+
 export function getResearch(
   accountId: string,
   personRole: string | null,
