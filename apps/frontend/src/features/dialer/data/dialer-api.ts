@@ -63,6 +63,45 @@ export type Call = {
   createdAt: string;
 };
 
+export type ParallelLegStatus =
+  | "RINGING"
+  | "MACHINE_DETECTED"
+  | "NO_ANSWER"
+  | "BUSY"
+  | "FAILED"
+  | "CONNECTED"
+  | "ABANDONED";
+
+export type ParallelBatchLeg = {
+  callId: string;
+  personId: string;
+  name: string;
+  accountName: string;
+  phone: string;
+};
+
+export type ParallelBatchSummary = {
+  batchId: string;
+  conferenceName: string;
+  legs: ParallelBatchLeg[];
+};
+
+export type ParallelBatchWinner = {
+  callId: string;
+  personId: string;
+  name: string;
+  role: string | null;
+  accountId: string;
+  accountName: string;
+  clientCompanyId: string;
+};
+
+export type ParallelBatchStatus = {
+  batchId: string;
+  legs: Array<{ callId: string; personId: string; status: ParallelLegStatus }>;
+  winner: ParallelBatchWinner | null;
+};
+
 export type ResearchObjection = { objection: string; response: string };
 export type ResearchBattlecard = { competitor: string; theirStrength: string; ourEdge: string };
 
@@ -161,6 +200,36 @@ export function getResearch(
   const params = new URLSearchParams({ clientCompanyId });
   if (personRole) params.set("personRole", personRole);
   return request<AccountResearch>(`/dialer/research/${accountId}?${params}`, accessToken);
+}
+
+// Discagem paralela — up to 3 lines at once (2026-08-25). Originates the
+// batch's outbound legs server-side; the browser then joins the same
+// Conference via the softphone (see useSoftphone.callParallel).
+export function startParallelBatch(
+  cadenceId: string,
+  accessToken: string,
+): Promise<ParallelBatchSummary> {
+  return request<ParallelBatchSummary>("/calls/parallel-batch", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ cadenceId }),
+  });
+}
+
+// Polled while a batch is in flight — no push/websocket in v1.
+export function getParallelBatchStatus(
+  batchId: string,
+  accessToken: string,
+): Promise<ParallelBatchStatus> {
+  return request<ParallelBatchStatus>(`/calls/parallel-batch/${batchId}`, accessToken);
+}
+
+// Called when the BDR hangs up before any line was answered by a human —
+// cancels whatever legs are still ringing so a prospect who picks up a
+// moment later isn't dropped into an abandoned conference room.
+export function cancelParallelBatch(batchId: string, accessToken: string): Promise<void> {
+  return request<void>(`/calls/parallel-batch/${batchId}/cancel`, accessToken, {
+    method: "POST",
+  });
 }
 
 export async function getLatestCallForPerson(

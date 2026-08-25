@@ -2,12 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "@/features/shell/stores/session-store";
+import { useToast } from "@/features/shell/hooks/useToast";
 import { openModal, closeModal } from "@/features/shell/stores/modal-store";
 import { useSoftphone } from "@/features/dialer/hooks/useSoftphone";
 import { useDialerQueue } from "@/features/dialer/hooks/useDialerQueue";
 import { useResearchCard } from "@/features/dialer/hooks/useResearchCard";
 import { useCadencePicker } from "@/features/dialer/hooks/useCadencePicker";
-import { getLatestCallForPerson } from "@/features/dialer/data/dialer-api";
+import {
+  startParallelBatch,
+  cancelParallelBatch,
+  getParallelBatchStatus,
+  type ParallelBatchSummary,
+  type ParallelBatchStatus,
+} from "@/features/dialer/data/dialer-api";
 import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
 
@@ -16,67 +23,149 @@ import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
 // per the Dial spec.
 const RETRY_WINDOW_SECONDS = 2;
 
+// Discagem paralela — up to 3 lines at once (2026-08-25). Polls the batch
+// while it's in flight; no push/websocket in v1.
+const BATCH_POLL_MS = 1500;
+
 export function useDialerStage() {
   const accessToken = useSessionStore((s) => s.accessToken);
-  const softphone = useSoftphone();
+  const toast = useToast();
   const cadencePicker = useCadencePicker();
   const queue = useDialerQueue(cadencePicker.selectedCadenceId);
   const research = useResearchCard();
 
-  const [calledPersonId, setCalledPersonId] = useState<string | null>(null);
-  const [activeCallId, setActiveCallId] = useState<string | null>(null);
-  const [awaitingOutcome, setAwaitingOutcome] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [batch, setBatch] = useState<ParallelBatchSummary | null>(null);
+  const [batchStatus, setBatchStatus] = useState<ParallelBatchStatus | null>(null);
   const [pendingResultKind, setPendingResultKind] = useState<"retry" | "invalid" | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentPerson = queue.currentPerson;
+  const winner = batchStatus?.winner ?? null;
+  // Looked up by personId rather than assumed to be queue[0]: the batch's
+  // candidates are picked from a fresh server-side queue snapshot, which
+  // can drift from this tab's cached local order (a manual reorder from
+  // another tab, a priority change) — pruning the other legs by id keeps
+  // them out of the list either way, but only an id lookup guarantees the
+  // winner (not just "whoever's now in front") is who the outcome gets
+  // attributed to.
+  const currentPerson = winner
+    ? (queue.queue.find((item) => item.personId === winner.personId) ?? queue.currentPerson)
+    : queue.currentPerson;
+  const dialingPersonIds = batch && !winner
+    ? batch.legs.map((leg) => leg.personId)
+    : [];
+  // Derived rather than stored: the winner's callId (once known) *is*
+  // activeCallId — storing it as its own state would just be an
+  // effect-driven copy of this.
+  const activeCallId = winner?.callId ?? null;
 
-  // Card de research só abre quando a chamada realmente conecta — pesquisa
-  // profunda é sempre pós-conexão, nunca antes. Depende de answerOnBridge
-  // no <Dial> do backend para "in-call" só disparar quando o prospect
-  // realmente atender (não quando a linha começa a tocar).
+  // Read via refs so handleAttemptEnded (passed once into useSoftphone,
+  // invoked from its SDK event handlers) always sees the latest values
+  // without needing to be redefined — and without useSoftphone needing to
+  // re-wire its Twilio Call listeners — every time they change.
+  const batchRef = useRef(batch);
   useEffect(() => {
-    if (softphone.status === "in-call" && currentPerson) {
-      void research.load(
-        currentPerson.accountId,
-        currentPerson.role,
-        currentPerson.clientCompanyId,
-      );
+    batchRef.current = batch;
+  }, [batch]);
+  const activeCallIdRef = useRef(activeCallId);
+  useEffect(() => {
+    activeCallIdRef.current = activeCallId;
+  }, [activeCallId]);
+
+  // An attempt ends when the BDR's browser leg disconnects. If there was a
+  // winner, awaitingOutcome below flips true on its own (derived from
+  // softphone.status + activeCallId) — nothing to do here. Otherwise the
+  // BDR gave up before anyone answered: cancel whatever's still ringing so
+  // a prospect who picks up isn't dropped into an empty conference room.
+  // This runs as a genuine external-event callback (from the Twilio SDK's
+  // own disconnect/cancel/error handlers inside useSoftphone), not a React
+  // effect watching derived state, so it's fine to setState here directly.
+  const handleAttemptEnded = useCallback(() => {
+    if (activeCallIdRef.current) return;
+    const endedBatch = batchRef.current;
+    if (endedBatch && accessToken) {
+      cancelParallelBatch(endedBatch.batchId, accessToken).catch(() => {
+        // best-effort — the legs will still resolve on their own via AMD/status callbacks
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the connect transition
-  }, [softphone.status]);
+    setBatch(null);
+    setBatchStatus(null);
+    research.clear();
+  }, [accessToken, research]);
 
-  // When an attempt ends — answered or not, disconnect/cancel/error alike —
-  // look up the Call the /calls/voice webhook already persisted so the
-  // outcome form has something to PATCH. Keyed on attemptEndedAt rather
-  // than lastDurationSeconds: an unanswered attempt legitimately keeps
-  // lastDurationSeconds at null (reset->null is not a state change React
-  // re-renders for), which used to leave the queue stuck on any no-answer.
+  const softphone = useSoftphone(handleAttemptEnded);
+  // "Awaiting outcome" *is* "the browser leg is idle again while we still
+  // have a winner from the batch that just ended" — also derived, not
+  // stored.
+  const awaitingOutcome = softphone.status === "ready" && activeCallId !== null;
+
+  // Poll GET /calls/parallel-batch/:id while a batch is open. The winner/
+  // all-terminal handling lives inside tick() itself (a callback, not the
+  // effect body) so the resulting setState calls happen in response to the
+  // fetch resolving — not synchronously inside the effect — and tick()
+  // self-stops the interval the moment the batch resolves, so a poll that's
+  // already in flight can't re-apply the same resolution twice.
   useEffect(() => {
-    if (softphone.attemptEndedAt === null || !calledPersonId || !accessToken) return;
+    if (!batch || !accessToken) return;
+    const batchId = batch.batchId;
+    const token = accessToken;
     let cancelled = false;
-    getLatestCallForPerson(calledPersonId, accessToken).then((call) => {
-      if (cancelled || !call) return;
-      setActiveCallId(call.id);
-      setAwaitingOutcome(true);
-    });
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    async function tick() {
+      try {
+        const status = await getParallelBatchStatus(batchId, token);
+        if (cancelled) return;
+        setBatchStatus(status);
+
+        const resolvedWinner = status.winner;
+        if (resolvedWinner) {
+          if (intervalId) clearInterval(intervalId);
+          const otherIds = status.legs
+            .filter((leg) => leg.personId !== resolvedWinner.personId)
+            .map((leg) => leg.personId);
+          if (otherIds.length > 0) queue.removeByPersonIds(otherIds);
+          void research.load(
+            resolvedWinner.accountId,
+            resolvedWinner.role,
+            resolvedWinner.clientCompanyId,
+          );
+          return;
+        }
+
+        const allTerminal = status.legs.every((leg) => leg.status !== "RINGING");
+        if (allTerminal) {
+          if (intervalId) clearInterval(intervalId);
+          queue.removeByPersonIds(status.legs.map((leg) => leg.personId));
+          toast("Nenhuma das linhas foi atendida por uma pessoa.");
+          setBatch(null);
+          setBatchStatus(null);
+        }
+      } catch {
+        // transient poll failure — try again on the next tick
+      }
+    }
+
+    void tick();
+    intervalId = setInterval(() => void tick(), BATCH_POLL_MS);
     return () => {
       cancelled = true;
+      if (intervalId) clearInterval(intervalId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new attempt actually ends
-  }, [softphone.attemptEndedAt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-poll only when a new batch actually starts
+  }, [batch?.batchId, accessToken]);
 
   const finishAttempt = useCallback(
     (kind: OutcomeKind) => {
-      setAwaitingOutcome(false);
-      setActiveCallId(null);
-      setCalledPersonId(null);
+      const personId = currentPerson?.personId ?? null;
+      setBatch(null);
+      setBatchStatus(null);
       research.clear();
       closeModal();
 
       if (kind === "final") {
-        queue.removeCurrentAndAdvance();
+        if (personId) queue.removeByPersonIds([personId]);
         return;
       }
 
@@ -90,15 +179,17 @@ export function useDialerStage() {
             if (countdownRef.current) clearInterval(countdownRef.current);
             countdownRef.current = null;
             setPendingResultKind(null);
-            if (kind === "retry") queue.requeueCurrent();
-            else queue.removeCurrentAndAdvance();
+            if (personId) {
+              if (kind === "retry") queue.requeuePersonId(personId);
+              else queue.removeByPersonIds([personId]);
+            }
             return null;
           }
           return seconds - 1;
         });
       }, 1000);
     },
-    [queue, research],
+    [queue, research, currentPerson],
   );
 
   // Popup para cadastro do outcome, não um card fixo na tela — abre sozinho
@@ -115,7 +206,6 @@ export function useDialerStage() {
       />,
       "Registrar outcome",
     );
-     
   }, [currentPerson, activeCallId, softphone.lastDurationSeconds, finishAttempt]);
 
   useEffect(() => {
@@ -138,20 +228,35 @@ export function useDialerStage() {
     };
   }, []);
 
-  const startCall = useCallback(() => {
-    if (!currentPerson) return;
+  // "Iniciar discagem" now always starts a parallel batch (up to 3 lines,
+  // fixed in v1) — the browser joins the batch's Conference room, and
+  // whichever line a human answers first gets bridged in.
+  const startCall = useCallback(async () => {
+    if (!cadencePicker.selectedCadenceId || !accessToken || starting) return;
     clearCountdown();
-    setCalledPersonId(currentPerson.personId);
-    setActiveCallId(null);
-    setAwaitingOutcome(false);
     research.clear();
-    void softphone.call(currentPerson.phone, currentPerson.personId);
-  }, [currentPerson, softphone, research, clearCountdown]);
+    setStarting(true);
+    try {
+      const summary = await startParallelBatch(cadencePicker.selectedCadenceId, accessToken);
+      if (summary.legs.length === 0) {
+        toast("Fila vazia — nenhum contato disponível para discar.");
+        return;
+      }
+      setBatch(summary);
+      setBatchStatus(null);
+      await softphone.callParallel(summary.batchId);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Não foi possível iniciar a discagem.");
+    } finally {
+      setStarting(false);
+    }
+  }, [cadencePicker.selectedCadenceId, accessToken, starting, clearCountdown, research, softphone, toast]);
 
-  // "Ligar novamente" clicked inside the retry window.
+  // "Ligar novamente" clicked inside the retry window — the contact is
+  // still at the front of the queue, so a fresh batch picks it right back up.
   const retryNow = useCallback(() => {
     clearCountdown();
-    startCall();
+    void startCall();
   }, [clearCountdown, startCall]);
 
   return {
@@ -161,6 +266,8 @@ export function useDialerStage() {
     research,
     currentPerson,
     activeCallId,
+    starting,
+    dialingPersonIds,
     lastDurationSeconds: softphone.lastDurationSeconds,
     awaitingOutcome,
     pendingResultKind,

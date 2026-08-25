@@ -33,10 +33,14 @@ const PRIORITY_VARIANT: Record<AccountPriority, "bad" | "warn" | "default"> = {
 export function QueueTable({
   queue,
   currentStatusLabel,
+  currentPersonId,
+  dialingPersonIds,
   onReorder,
 }: {
   queue: QueueItem[];
   currentStatusLabel: string;
+  currentPersonId: string | null;
+  dialingPersonIds: string[];
   onReorder: (fromIndex: number, toIndex: number) => void;
 }) {
   const { dragIndex, overIndex, handleDragStart, handleDragOver, handleDrop, handleDragEnd } =
@@ -59,7 +63,9 @@ export function QueueTable({
         </Thead>
         <Tbody>
           {queue.map((item, index) => {
-            const reorderable = index > 0;
+            const isDialing = dialingPersonIds.includes(item.personId);
+            const isCurrent = item.personId === currentPersonId && !isDialing;
+            const reorderable = index > 0 && !isDialing && !isCurrent;
             return (
               <Tr
                 key={item.personId}
@@ -78,8 +84,8 @@ export function QueueTable({
                 )}
               >
                 <Td>
-                  <Tag variant={index === 0 ? "info" : "default"}>
-                    {index === 0 ? currentStatusLabel : "Pendente"}
+                  <Tag variant={isDialing || isCurrent ? "info" : "default"}>
+                    {isDialing ? "Discando" : isCurrent ? currentStatusLabel : "Pendente"}
                   </Tag>
                 </Td>
                 <Td>{item.name}</Td>

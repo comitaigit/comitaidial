@@ -670,6 +670,45 @@ export class CallsService {
     });
   }
 
+  // The BDR hung up before any line was answered by a human — cancel every
+  // still-ringing leg via the REST API. Without this, an outbound leg that
+  // gets answered after the BDR has already left would redirect into a
+  // Conference whose initiator is gone (endConferenceOnExit ended it), so
+  // Twilio would spin up a fresh, empty room for the prospect to sit in
+  // silence. Legs already resolved (machine/busy/no-answer/connected) are
+  // left untouched — only RINGING ones are live enough to need cancelling.
+  async cancelBatch(batchId: string, tenantId: string): Promise<void> {
+    const ringingLegs = await this.prisma.call.findMany({
+      where: {
+        tenantId,
+        dialBatchId: batchId,
+        parallelLegStatus: ParallelLegStatus.RINGING,
+      },
+    });
+
+    for (const leg of ringingLegs) {
+      if (!leg.twilioCallSid) continue;
+      try {
+        await this.client
+          .calls(leg.twilioCallSid)
+          .update({ status: 'completed' });
+      } catch (err) {
+        this.logger.error(
+          `Failed to cancel parallel leg ${leg.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    await this.prisma.call.updateMany({
+      where: {
+        tenantId,
+        dialBatchId: batchId,
+        parallelLegStatus: ParallelLegStatus.RINGING,
+      },
+      data: { parallelLegStatus: ParallelLegStatus.ABANDONED },
+    });
+  }
+
   async updateOutcome(
     id: string,
     dto: UpdateCallOutcomeDto,

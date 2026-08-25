@@ -41,15 +41,29 @@ export function useDialerQueue(cadenceId: string | null) {
     };
   }, [accessToken, cadenceId]);
 
-  // Definitive outcome (or número inexistente) — the contact is done, drop it.
-  const removeCurrentAndAdvance = useCallback(() => {
-    setQueue((prev) => prev.slice(1));
+  // Discagem paralela: the batch's candidates come from a fresh server-side
+  // queue snapshot, which can drift from this tab's cached local order — so
+  // every removal/requeue after a batch resolves is keyed by personId
+  // rather than assumed to be at index 0. Covers both the losing legs (via
+  // removeByPersonIds directly) and the winner once its outcome is known
+  // (via removeByPersonIds for a final/invalid outcome, or requeuePersonId
+  // for a retry-eligible one).
+  const removeByPersonIds = useCallback((personIds: string[]) => {
+    const idSet = new Set(personIds);
+    setQueue((prev) => prev.filter((item) => !idSet.has(item.personId)));
   }, []);
 
   // Retry-eligible outcome (não atendeu / caixa postal / ocupado) — send it
   // to the back of the queue instead of dropping it.
-  const requeueCurrent = useCallback(() => {
-    setQueue((prev) => (prev.length > 0 ? [...prev.slice(1), prev[0]] : prev));
+  const requeuePersonId = useCallback((personId: string) => {
+    setQueue((prev) => {
+      const index = prev.findIndex((item) => item.personId === personId);
+      if (index === -1) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.push(item);
+      return next;
+    });
   }, []);
 
   // Manual drag-and-drop reorder — same "whole new order is authoritative"
@@ -92,8 +106,8 @@ export function useDialerQueue(cadenceId: string | null) {
     error: cadenceId ? error : null,
     currentPerson: effectiveQueue[0] ?? null,
     remaining: effectiveQueue.length,
-    removeCurrentAndAdvance,
-    requeueCurrent,
+    removeByPersonIds,
+    requeuePersonId,
     moveItem,
   };
 }

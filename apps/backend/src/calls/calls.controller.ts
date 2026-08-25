@@ -77,6 +77,17 @@ export class CallsController {
     return this.calls.getBatchStatus(id, user.tenantId);
   }
 
+  // BDR gave up before any line was answered — cancel whatever legs are
+  // still ringing so a prospect who picks up a moment later isn't dropped
+  // into an abandoned conference room.
+  @Post('parallel-batch/:id/cancel')
+  cancelParallelBatch(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.calls.cancelBatch(id, user.tenantId);
+  }
+
   // The TwiML App's Voice URL — Twilio calls this directly (no user JWT),
   // so it's @Public() and instead verified via Twilio's own request
   // signature to stop anyone who finds this URL from placing arbitrary

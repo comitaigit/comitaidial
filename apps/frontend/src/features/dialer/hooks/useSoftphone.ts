@@ -16,11 +16,22 @@ export type SoftphoneStatus =
 // Owns the Twilio.Device lifecycle: registers a softphone identity on
 // mount using a token from POST /calls/voice-token, and exposes call()/
 // hangup() wired to that Device. One Device per browser tab.
-export function useSoftphone() {
+//
+// onAttemptEnded fires synchronously from the SDK's own disconnect/cancel/
+// error handlers (a genuine external-event callback, not a React effect) —
+// callers that need to react to an attempt ending should use this instead
+// of watching attemptEndedAt in their own effect, which just re-derives the
+// same event a render late. Read via a ref so call()/callParallel() always
+// invoke whatever the latest render passed in, without needing it as a dep.
+export function useSoftphone(onAttemptEnded?: () => void) {
   const accessToken = useSessionStore((s) => s.accessToken);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<Call | null>(null);
   const callStartedAtRef = useRef<number | null>(null);
+  const onAttemptEndedRef = useRef(onAttemptEnded);
+  useEffect(() => {
+    onAttemptEndedRef.current = onAttemptEnded;
+  }, [onAttemptEnded]);
 
   const [status, setStatus] = useState<SoftphoneStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +108,7 @@ export function useSoftphone() {
         setStatus("ready");
         setCallStartedAt(null);
         activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
       });
       activeCall.on("cancel", () => {
         setLastDurationSeconds(null);
@@ -105,6 +117,7 @@ export function useSoftphone() {
         setStatus("ready");
         setCallStartedAt(null);
         activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
       });
       activeCall.on("error", (callError) => {
         setError(callError.message);
@@ -114,6 +127,65 @@ export function useSoftphone() {
         setStatus("ready");
         setCallStartedAt(null);
         activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
+      });
+    },
+    [status],
+  );
+
+  // Discagem paralela — the browser doesn't dial a number here at all, it
+  // just joins the batch's Conference room and waits (see
+  // CallsService.handleParallelVoiceWebhook). "accept" fires the instant
+  // the room is joined — that's the BDR entering the conference, not a
+  // prospect answering; callers must track who's actually connected via
+  // the batch status poll (useParallelBatch), not via this status.
+  const callParallel = useCallback(
+    async (batchId: string) => {
+      const device = deviceRef.current;
+      if (!device || status !== "ready") return;
+
+      setError(null);
+      setLastDurationSeconds(null);
+      setStatus("connecting");
+
+      const activeCall = await device.connect({ params: { mode: "parallel", batchId } });
+      activeCallRef.current = activeCall;
+
+      activeCall.on("accept", () => {
+        callStartedAtRef.current = Date.now();
+        setStatus("in-call");
+        setCallStartedAt(Date.now());
+      });
+      activeCall.on("disconnect", () => {
+        const startedAt = callStartedAtRef.current;
+        setLastDurationSeconds(
+          startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
+        );
+        setAttemptEndedAt(Date.now());
+        callStartedAtRef.current = null;
+        setStatus("ready");
+        setCallStartedAt(null);
+        activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
+      });
+      activeCall.on("cancel", () => {
+        setLastDurationSeconds(null);
+        setAttemptEndedAt(Date.now());
+        callStartedAtRef.current = null;
+        setStatus("ready");
+        setCallStartedAt(null);
+        activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
+      });
+      activeCall.on("error", (callError) => {
+        setError(callError.message);
+        setLastDurationSeconds(null);
+        setAttemptEndedAt(Date.now());
+        callStartedAtRef.current = null;
+        setStatus("ready");
+        setCallStartedAt(null);
+        activeCallRef.current = null;
+        onAttemptEndedRef.current?.();
       });
     },
     [status],
@@ -123,5 +195,14 @@ export function useSoftphone() {
     activeCallRef.current?.disconnect();
   }, []);
 
-  return { status, error, callStartedAt, lastDurationSeconds, attemptEndedAt, call, hangup };
+  return {
+    status,
+    error,
+    callStartedAt,
+    lastDurationSeconds,
+    attemptEndedAt,
+    call,
+    callParallel,
+    hangup,
+  };
 }

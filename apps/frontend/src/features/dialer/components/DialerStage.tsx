@@ -24,6 +24,8 @@ export function DialerStage() {
     queue,
     research,
     currentPerson,
+    starting,
+    dialingPersonIds,
     awaitingOutcome,
     pendingResultKind,
     retryCountdown,
@@ -43,6 +45,7 @@ export function DialerStage() {
   const canCall =
     softphone.status === "ready" &&
     !!currentPerson &&
+    !starting &&
     !awaitingOutcome &&
     !cadencePicker.isIncomplete;
   const canHangup = softphone.status === "connecting" || softphone.status === "in-call";
@@ -60,7 +63,7 @@ export function DialerStage() {
       <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-line bg-panel p-3.5">
         <div className="flex items-center gap-2.5">
           <Button variant="primary" onClick={startCall} disabled={!canCall}>
-            Iniciar discagem
+            {starting ? "Iniciando…" : "Iniciar discagem (até 3 linhas)"}
           </Button>
           {pendingResultKind === "retry" ? (
             <Button onClick={retryNow}>Ligar novamente</Button>
@@ -80,11 +83,13 @@ export function DialerStage() {
       {softphone.error ? <p className="text-xs text-bad">{softphone.error}</p> : null}
       {queue.error ? <p className="text-xs text-bad">{queue.error}</p> : null}
 
-      <div className="rounded-[9px] border border-dashed border-[#a6b1c1] bg-[#fafbfc] p-2.5 text-xs leading-relaxed">
-        Discagem paralela ainda não está disponível — a fila é trabalhada um
-        contato por vez pelo softphone do navegador. Toda tentativa exige um
-        outcome antes de seguir para o próximo.
-      </div>
+      {dialingPersonIds.length > 0 ? (
+        <div className="rounded-[9px] border border-dashed border-[#a6b1c1] bg-[#fafbfc] p-2.5 text-xs leading-relaxed">
+          Discando {dialingPersonIds.length} linha{dialingPersonIds.length > 1 ? "s" : ""} em
+          paralelo — a primeira pessoa que atender é conectada, as demais são encerradas
+          automaticamente.
+        </div>
+      ) : null}
 
       {awaitingOutcome && currentPerson ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-accent bg-soft p-3.5">
@@ -102,6 +107,8 @@ export function DialerStage() {
         <QueueTable
           queue={queue.queue}
           currentStatusLabel={currentStatusLabel}
+          currentPersonId={currentPerson?.personId ?? null}
+          dialingPersonIds={dialingPersonIds}
           onReorder={queue.moveItem}
         />
         <ResearchCard research={research.research} status={research.status} error={research.error} />
