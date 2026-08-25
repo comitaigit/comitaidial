@@ -42,7 +42,7 @@ export function QueueTable({
             <Th>Nome</Th>
             <Th>Telefone</Th>
             <Th>Persona</Th>
-            <Th>Cargo</Th>
+            <Th>Job Title</Th>
             <Th>Nome da empresa</Th>
             <Th>Últimas atividades</Th>
             <Th>Prioridade</Th>

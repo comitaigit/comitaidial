@@ -38,7 +38,7 @@ export function NewPersonForm() {
           <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </Field>
       </div>
-      <Field label="Cargo">
+      <Field label="Job Title">
         <Input value={role} onChange={(e) => setRole(e.target.value)} />
       </Field>
       <Field label="Account">

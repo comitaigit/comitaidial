@@ -39,7 +39,7 @@ export function ImportPeopleForm() {
       </Field>
       <div className="rounded-[9px] border border-dashed border-[#a6b1c1] bg-[#fafbfc] p-2.5 text-xs leading-relaxed">
         Colunas esperadas: <b>Prospect (Nome)</b>, <b>Nome da conta</b>,{" "}
-        <b>Celular</b>, <b>LinkedIn (URL do perfil)</b>,{" "}
+        <b>Celular</b>, <b>LinkedIn (URL do perfil)</b>, <b>Job Title</b>,{" "}
         <b>Nível de influência</b>. Uma account nova é criada automaticamente
         quando o nome não existe ainda; um prospect com o mesmo celular já
         cadastrado é atualizado, sem sobrescrever campos já preenchidos.

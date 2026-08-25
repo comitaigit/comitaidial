@@ -175,6 +175,7 @@ export class PeopleService {
       const phone = record['Celular']?.trim() || undefined;
       const linkedinUrl =
         record['LinkedIn (URL do perfil)']?.trim() || undefined;
+      const jobTitle = record['Job Title']?.trim() || undefined;
       const influenceLevel = parseInfluenceLevel(record['Nível de influência']);
 
       try {
@@ -207,11 +208,13 @@ export class PeopleService {
             const data: {
               linkedinUrl?: string;
               influenceLevel?: InfluenceLevel;
+              role?: string;
             } = {};
             if (!existing.linkedinUrl && linkedinUrl)
               data.linkedinUrl = linkedinUrl;
             if (!existing.influenceLevel && influenceLevel)
               data.influenceLevel = influenceLevel;
+            if (!existing.role && jobTitle) data.role = jobTitle;
 
             if (Object.keys(data).length > 0) {
               const person = await tx.person.update({
@@ -240,6 +243,7 @@ export class PeopleService {
                 phone,
                 linkedinUrl,
                 influenceLevel,
+                role: jobTitle,
               },
             });
             await tx.activity.create({
