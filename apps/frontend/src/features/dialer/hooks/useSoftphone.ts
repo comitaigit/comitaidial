@@ -26,6 +26,12 @@ export function useSoftphone() {
   const [error, setError] = useState<string | null>(null);
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
   const [lastDurationSeconds, setLastDurationSeconds] = useState<number | null>(null);
+  // Distinct from lastDurationSeconds, which can legitimately be (and stay)
+  // null for an attempt that never connected — a plain null->null update
+  // doesn't re-render, so the dialer stage's "an attempt just ended, go
+  // collect its outcome" effect needs a value that always changes on every
+  // disconnect/cancel, answered or not.
+  const [attemptEndedAt, setAttemptEndedAt] = useState<number | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -86,12 +92,15 @@ export function useSoftphone() {
         setLastDurationSeconds(
           startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
         );
+        setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
         setStatus("ready");
         setCallStartedAt(null);
         activeCallRef.current = null;
       });
       activeCall.on("cancel", () => {
+        setLastDurationSeconds(null);
+        setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
         setStatus("ready");
         setCallStartedAt(null);
@@ -99,6 +108,8 @@ export function useSoftphone() {
       });
       activeCall.on("error", (callError) => {
         setError(callError.message);
+        setLastDurationSeconds(null);
+        setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
         setStatus("ready");
         setCallStartedAt(null);
@@ -112,5 +123,5 @@ export function useSoftphone() {
     activeCallRef.current?.disconnect();
   }, []);
 
-  return { status, error, callStartedAt, lastDurationSeconds, call, hangup };
+  return { status, error, callStartedAt, lastDurationSeconds, attemptEndedAt, call, hangup };
 }

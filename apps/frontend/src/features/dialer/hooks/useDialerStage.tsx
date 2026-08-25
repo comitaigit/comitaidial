@@ -47,10 +47,14 @@ export function useDialerStage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the connect transition
   }, [softphone.status]);
 
-  // When a call ends, look up the Call the /calls/voice webhook already
-  // persisted so the outcome form has something to PATCH.
+  // When an attempt ends — answered or not, disconnect/cancel/error alike —
+  // look up the Call the /calls/voice webhook already persisted so the
+  // outcome form has something to PATCH. Keyed on attemptEndedAt rather
+  // than lastDurationSeconds: an unanswered attempt legitimately keeps
+  // lastDurationSeconds at null (reset->null is not a state change React
+  // re-renders for), which used to leave the queue stuck on any no-answer.
   useEffect(() => {
-    if (softphone.lastDurationSeconds === null || !calledPersonId || !accessToken) return;
+    if (softphone.attemptEndedAt === null || !calledPersonId || !accessToken) return;
     let cancelled = false;
     getLatestCallForPerson(calledPersonId, accessToken).then((call) => {
       if (cancelled || !call) return;
@@ -60,8 +64,8 @@ export function useDialerStage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new call actually ends
-  }, [softphone.lastDurationSeconds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new attempt actually ends
+  }, [softphone.attemptEndedAt]);
 
   const finishAttempt = useCallback(
     (kind: OutcomeKind) => {
