@@ -151,6 +151,13 @@ export function useDialerStage() {
           if (intervalId) clearInterval(intervalId);
           queue.removeByPersonIds(status.legs.map((leg) => leg.personId));
           toast("Nenhuma das linhas foi atendida por uma pessoa.");
+          // The BDR's own leg is still sitting in the batch's Conference
+          // room — nothing else disconnects it when no line is answered,
+          // so without this the softphone stays stuck on "in-call" and the
+          // next "Iniciar discagem" silently no-ops (Device.connect only
+          // proceeds from "ready"). This lets its own "disconnect" handler
+          // reset status naturally.
+          softphone.hangup();
           setBatch(null);
           setBatchStatus(null);
         }
