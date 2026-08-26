@@ -99,6 +99,11 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         setCallStartedAt(Date.now());
       });
       activeCall.on("disconnect", () => {
+        // A Call object's own lifecycle events can still fire after it's
+        // been superseded (e.g. a delayed disconnect confirmation arriving
+        // once a *new* call is already active) — only the call that's still
+        // current should be allowed to reset state / notify onAttemptEnded.
+        if (activeCallRef.current !== activeCall) return;
         const startedAt = callStartedAtRef.current;
         setLastDurationSeconds(
           startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
@@ -111,6 +116,7 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         onAttemptEndedRef.current?.();
       });
       activeCall.on("cancel", () => {
+        if (activeCallRef.current !== activeCall) return;
         setLastDurationSeconds(null);
         setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
@@ -120,6 +126,7 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         onAttemptEndedRef.current?.();
       });
       activeCall.on("error", (callError) => {
+        if (activeCallRef.current !== activeCall) return;
         setError(callError.message);
         setLastDurationSeconds(null);
         setAttemptEndedAt(Date.now());
@@ -157,6 +164,9 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         setCallStartedAt(Date.now());
       });
       activeCall.on("disconnect", () => {
+        // See the same guard in call() — a stale confirmation from a batch
+        // that's already been superseded by a new one must not cancel it.
+        if (activeCallRef.current !== activeCall) return;
         const startedAt = callStartedAtRef.current;
         setLastDurationSeconds(
           startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
@@ -169,6 +179,7 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         onAttemptEndedRef.current?.();
       });
       activeCall.on("cancel", () => {
+        if (activeCallRef.current !== activeCall) return;
         setLastDurationSeconds(null);
         setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
@@ -178,6 +189,7 @@ export function useSoftphone(onAttemptEnded?: () => void) {
         onAttemptEndedRef.current?.();
       });
       activeCall.on("error", (callError) => {
+        if (activeCallRef.current !== activeCall) return;
         setError(callError.message);
         setLastDurationSeconds(null);
         setAttemptEndedAt(Date.now());

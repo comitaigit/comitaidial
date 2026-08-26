@@ -26,6 +26,7 @@ export function DialerStage() {
     currentPerson,
     starting,
     dialingPersonIds,
+    winner,
     awaitingOutcome,
     pendingResultKind,
     retryCountdown,
@@ -88,6 +89,13 @@ export function DialerStage() {
           Discando {dialingPersonIds.length} linha{dialingPersonIds.length > 1 ? "s" : ""} em
           paralelo — a primeira pessoa que atender é conectada, as demais são encerradas
           automaticamente.
+        </div>
+      ) : null}
+
+      {winner && !awaitingOutcome ? (
+        <div className="rounded-xl border border-accent bg-soft p-3.5 text-xs leading-relaxed">
+          Conectado com <b>{winner.name}</b> — <b>{winner.accountName}</b>. A pesquisa da conta
+          está ao lado.
         </div>
       ) : null}
 

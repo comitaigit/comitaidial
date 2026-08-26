@@ -285,6 +285,7 @@ export function useDialerStage() {
     research,
     currentPerson,
     activeCallId,
+    winner,
     starting,
     dialingPersonIds,
     lastDurationSeconds: softphone.lastDurationSeconds,
