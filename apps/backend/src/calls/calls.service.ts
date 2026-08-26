@@ -72,6 +72,16 @@ const OUTCOME_SIGNAL: Partial<
   },
 };
 
+// Mirrors the frontend's OUTCOME_OPTIONS "retry" grouping (useOutcomeForm.ts)
+// — these three keep the contact eligible to be dialed again, so they must
+// NOT deactivate the cadence enrollment. Every other outcome (including
+// INVALID_NUMBER) means the contact is done being worked in this cadence.
+const RETRY_ELIGIBLE_OUTCOMES = new Set<CallOutcome>([
+  CallOutcome.NO_ANSWER,
+  CallOutcome.VOICEMAIL,
+  CallOutcome.BUSY,
+]);
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -741,6 +751,36 @@ export class CallsService {
           payload: { callId: updated.id, outcome: updated.outcome },
         },
       });
+
+      // A final/invalid outcome means this contact is done being worked in
+      // whichever cadence they were dialed under — deactivate that
+      // enrollment so GET /dialer/queue (including on a page refresh)
+      // stops bringing them back. Call has no direct cadenceId column;
+      // every real dial now goes through a DialBatch (discagem paralela is
+      // the only path the UI exposes), which does carry one. Retry-eligible
+      // outcomes (NO_ANSWER/VOICEMAIL/BUSY) intentionally leave the
+      // enrollment active — those contacts stay in the queue to be retried.
+      if (
+        updated.outcome &&
+        updated.personId &&
+        existing.dialBatchId &&
+        !RETRY_ELIGIBLE_OUTCOMES.has(updated.outcome)
+      ) {
+        const dialBatch = await tx.dialBatch.findUnique({
+          where: { id: existing.dialBatchId },
+          select: { cadenceId: true },
+        });
+        if (dialBatch) {
+          await tx.cadenceEnrollment.updateMany({
+            where: {
+              tenantId,
+              cadenceId: dialBatch.cadenceId,
+              personId: updated.personId,
+            },
+            data: { active: false },
+          });
+        }
+      }
 
       const signalTemplate = updated.outcome
         ? OUTCOME_SIGNAL[updated.outcome]

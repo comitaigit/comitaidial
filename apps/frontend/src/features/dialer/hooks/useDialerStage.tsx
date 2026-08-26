@@ -49,9 +49,21 @@ export function useDialerStage() {
   // them out of the list either way, but only an id lookup guarantees the
   // winner (not just "whoever's now in front") is who the outcome gets
   // attributed to.
+  // While a batch is actively dialing with no winner yet, there is no
+  // single "current" contact — up to 3 people are being tried at once, and
+  // none of them is connected. Falling back to queue.currentPerson (the
+  // front of the local queue) here was the bug behind the row that showed
+  // "Em ligação" the instant the browser joined the Conference: that status
+  // comes from softphone.status, which flips to "in-call" the moment the
+  // BDR's own leg joins the room — not when any prospect answers — so it
+  // was labeling an arbitrary front-of-queue contact as connected while
+  // the real 3 dialed legs (correctly tracked in dialingPersonIds) sat
+  // right below it unlabeled.
   const currentPerson = winner
     ? (queue.queue.find((item) => item.personId === winner.personId) ?? queue.currentPerson)
-    : queue.currentPerson;
+    : batch
+      ? null
+      : queue.currentPerson;
   const dialingPersonIds = batch && !winner
     ? batch.legs.map((leg) => leg.personId)
     : [];
