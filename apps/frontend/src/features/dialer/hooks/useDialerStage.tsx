@@ -14,6 +14,7 @@ import {
   getParallelBatchStatus,
   type ParallelBatchSummary,
   type ParallelBatchStatus,
+  type ParallelLegStatus,
 } from "@/features/dialer/data/dialer-api";
 import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
@@ -26,6 +27,28 @@ const RETRY_WINDOW_SECONDS = 2;
 // Discagem paralela — up to 3 lines at once (2026-08-25). Polls the batch
 // while it's in flight; no push/websocket in v1.
 const BATCH_POLL_MS = 1500;
+
+// Mirrors CallsService's RETRY_ELIGIBLE_OUTCOMES: only a leg that ends up
+// FAILED (→ CallOutcome.INVALID_NUMBER) actually deactivates its
+// CadenceEnrollment on the backend. MACHINE_DETECTED (→ VOICEMAIL),
+// NO_ANSWER, BUSY, and ABANDONED (no outcome at all — lost the AMD race)
+// all leave the contact enrolled and re-dialable. Pruning those from the
+// local queue here — as every earlier version of this resolution logic
+// did — desyncs the frontend's view from the backend's: the next batch's
+// getQueue() legitimately picks the same person again, but their row no
+// longer exists locally for dialingPersonIds to find, so only the
+// genuinely-new candidates in that batch ever show "Discando". That's
+// exactly what produced "only 1 of 3 lines highlighted, one at a time,
+// from the second dial onward."
+const ENROLLMENT_DEACTIVATING_LEG_STATUSES = new Set<ParallelLegStatus>(["FAILED"]);
+
+function permanentlyResolvedPersonIds(
+  legs: Array<{ personId: string; status: ParallelLegStatus }>,
+): string[] {
+  return legs
+    .filter((leg) => ENROLLMENT_DEACTIVATING_LEG_STATUSES.has(leg.status))
+    .map((leg) => leg.personId);
+}
 
 export function useDialerStage() {
   const accessToken = useSessionStore((s) => s.accessToken);
@@ -134,10 +157,11 @@ export function useDialerStage() {
         const resolvedWinner = status.winner;
         if (resolvedWinner) {
           if (intervalId) clearInterval(intervalId);
-          const otherIds = status.legs
-            .filter((leg) => leg.personId !== resolvedWinner.personId)
-            .map((leg) => leg.personId);
-          if (otherIds.length > 0) queue.removeByPersonIds(otherIds);
+          const otherLegs = status.legs.filter(
+            (leg) => leg.personId !== resolvedWinner.personId,
+          );
+          const goneIds = permanentlyResolvedPersonIds(otherLegs);
+          if (goneIds.length > 0) queue.removeByPersonIds(goneIds);
           void research.load(
             resolvedWinner.accountId,
             resolvedWinner.role,
@@ -149,7 +173,8 @@ export function useDialerStage() {
         const allTerminal = status.legs.every((leg) => leg.status !== "RINGING");
         if (allTerminal) {
           if (intervalId) clearInterval(intervalId);
-          queue.removeByPersonIds(status.legs.map((leg) => leg.personId));
+          const goneIds = permanentlyResolvedPersonIds(status.legs);
+          if (goneIds.length > 0) queue.removeByPersonIds(goneIds);
           toast("Nenhuma das linhas foi atendida por uma pessoa.");
           // The BDR's own leg is still sitting in the batch's Conference
           // room — nothing else disconnects it when no line is answered,
