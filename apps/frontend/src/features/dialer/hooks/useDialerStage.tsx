@@ -84,40 +84,26 @@ export function useDialerStage() {
   useEffect(() => {
     activeCallIdRef.current = activeCallId;
   }, [activeCallId]);
-  // Set right before tick() itself triggers the hangup for an already-
-  // resolved batch (see the allTerminal branch below) — lets
-  // handleAttemptEnded tell "the BDR hit Encerrar before any line
-  // resolved" apart from "the system hung up after the batch was already
-  // fully handled", which fire through the exact same softphone disconnect
-  // event and are otherwise indistinguishable from inside the handler.
-  const batchEndedBySystemRef = useRef(false);
-
   // An attempt ends when the BDR's browser leg disconnects. If there was a
   // winner, awaitingOutcome below flips true on its own (derived from
-  // softphone.status + activeCallId) — nothing to do here. Otherwise the
-  // BDR gave up before anyone answered: cancel whatever's still ringing so
-  // a prospect who picks up isn't dropped into an empty conference room,
-  // and — only when this was the BDR's own choice, not the system already
-  // wrapping up a resolved batch — treat those contacts the same as a
-  // natural "não atendeu": the backend now records NO_ANSWER for them
-  // (cancelBatch), so requeue them locally to match, instead of leaving
-  // them sitting unclassified at the front of the queue.
+  // softphone.status + activeCallId) — nothing to do here. Otherwise nobody
+  // answered (manual hangup OR system-detected allTerminal): cancel whatever's
+  // still ringing so a prospect who picks up isn't dropped into an empty
+  // conference room, and requeue each dialed contact to the back of the local
+  // queue — same as a natural "não atendeu" — so the BDR moves on to fresh
+  // contacts next round instead of retrying the same people immediately.
   // This runs as a genuine external-event callback (from the Twilio SDK's
   // own disconnect/cancel/error handlers inside useSoftphone), not a React
   // effect watching derived state, so it's fine to setState here directly.
   const handleAttemptEnded = useCallback(() => {
     if (activeCallIdRef.current) return;
     const endedBatch = batchRef.current;
-    const endedBySystem = batchEndedBySystemRef.current;
-    batchEndedBySystemRef.current = false;
     if (endedBatch && accessToken) {
       cancelParallelBatch(endedBatch.batchId, accessToken).catch(() => {
         // best-effort — the legs will still resolve on their own via AMD/status callbacks
       });
-      if (!endedBySystem) {
-        for (const leg of endedBatch.legs) {
-          queue.requeuePersonId(leg.personId);
-        }
+      for (const leg of endedBatch.legs) {
+        queue.requeuePersonId(leg.personId);
       }
     }
     setBatch(null);
@@ -187,12 +173,11 @@ export function useDialerStage() {
           // room — nothing else disconnects it when no line is answered,
           // so without this the softphone stays stuck on "in-call" and the
           // next "Iniciar discagem" silently no-ops (Device.connect only
-          // proceeds from "ready"). This lets its own "disconnect" handler
-          // reset status naturally.
-          batchEndedBySystemRef.current = true;
+          // proceeds from "ready"). handleAttemptEnded (fired by the SDK's
+          // disconnect event) handles the batch cleanup and requeue — we
+          // must NOT call setBatch(null) here first, or batchRef.current
+          // will be null by the time handleAttemptEnded reads it.
           softphone.hangup();
-          setBatch(null);
-          setBatchStatus(null);
         }
       } catch {
         // transient poll failure — try again on the next tick
