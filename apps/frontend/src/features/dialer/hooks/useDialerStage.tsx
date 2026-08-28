@@ -144,6 +144,16 @@ export function useDialerStage() {
     startCall();
   }, [clearCountdown, startCall]);
 
+  // "Pular contato" — the BDR doesn't want to call this specific contact
+  // right now. Sends it to the back of the queue, same as a retry-eligible
+  // outcome, but without dialing anything: no Call/Activity is recorded,
+  // since nothing was actually attempted.
+  const skipCurrent = useCallback(() => {
+    if (!currentPerson) return;
+    clearCountdown();
+    queue.requeuePersonId(currentPerson.personId);
+  }, [currentPerson, queue, clearCountdown]);
+
   return {
     softphone,
     cadencePicker,
@@ -157,6 +167,7 @@ export function useDialerStage() {
     retryCountdown,
     startCall,
     retryNow,
+    skipCurrent,
     hangup: softphone.hangup,
     finishAttempt,
     openOutcomeModal,

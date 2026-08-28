@@ -29,6 +29,7 @@ export function DialerStage() {
     retryCountdown,
     startCall,
     retryNow,
+    skipCurrent,
     hangup,
     openOutcomeModal,
   } = useDialerStage();
@@ -46,6 +47,9 @@ export function DialerStage() {
     !awaitingOutcome &&
     !cadencePicker.isIncomplete;
   const canHangup = softphone.status === "connecting" || softphone.status === "in-call";
+  // Same window as "Iniciar discagem": only makes sense to skip ahead when
+  // nobody's mid-call and there's actually someone at the front to skip.
+  const canSkip = softphone.status === "ready" && !!currentPerson && !awaitingOutcome;
 
   return (
     <div className="grid gap-3.5">
@@ -65,6 +69,9 @@ export function DialerStage() {
           {pendingResultKind === "retry" ? (
             <Button onClick={retryNow}>Ligar novamente</Button>
           ) : null}
+          <Button onClick={skipCurrent} disabled={!canSkip}>
+            Pular contato
+          </Button>
           <Button variant="bad" onClick={hangup} disabled={!canHangup}>
             Encerrar ligação
           </Button>
