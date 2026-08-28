@@ -709,13 +709,21 @@ export class CallsService {
       }
     }
 
+    // Outcome NO_ANSWER (not left null) so these legs get the exact same
+    // retry-eligible treatment as a line that rang out on its own —
+    // RETRY_ELIGIBLE_OUTCOMES keeps the enrollment active, and Call
+    // Check/Overview/Meu Funil count it as a real not-connected attempt
+    // instead of a call with no outcome at all.
     await this.prisma.call.updateMany({
       where: {
         tenantId,
         dialBatchId: batchId,
         parallelLegStatus: ParallelLegStatus.RINGING,
       },
-      data: { parallelLegStatus: ParallelLegStatus.ABANDONED },
+      data: {
+        parallelLegStatus: ParallelLegStatus.ABANDONED,
+        outcome: CallOutcome.NO_ANSWER,
+      },
     });
   }
 

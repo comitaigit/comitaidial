@@ -14,7 +14,7 @@ export default function DialerPage() {
     <section>
       <PageHeader
         title="Dialer"
-        subtitle="Ligação em tempo real pelo navegador. Discagem paralela ainda não está disponível — por enquanto, um contato por vez."
+        subtitle="Ligação em tempo real pelo navegador. Discagem paralela de até 3 linhas — a primeira pessoa que atender é conectada."
       />
       <DialerStage />
     </section>
