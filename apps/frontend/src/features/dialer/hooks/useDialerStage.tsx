@@ -84,31 +84,60 @@ export function useDialerStage() {
   useEffect(() => {
     activeCallIdRef.current = activeCallId;
   }, [activeCallId]);
-  // An attempt ends when the BDR's browser leg disconnects. If there was a
-  // winner, awaitingOutcome below flips true on its own (derived from
-  // softphone.status + activeCallId) — nothing to do here. Otherwise nobody
-  // answered (manual hangup OR system-detected allTerminal): cancel whatever's
-  // still ringing so a prospect who picks up isn't dropped into an empty
-  // conference room, and requeue each dialed contact to the back of the local
-  // queue — same as a natural "não atendeu" — so the BDR moves on to fresh
-  // contacts next round instead of retrying the same people immediately.
+  // An attempt ends when the BDR's browser leg disconnects.
+  //
+  // If a polling tick had already confirmed a winner, activeCallIdRef is
+  // non-null and awaitingOutcome handles everything — nothing to do here.
+  //
+  // Otherwise we can't know yet whether someone answered: the BDR may have
+  // disconnected in the gap between the Twilio webhook landing (backend now
+  // knows about the winner) and our next poll seeing it. Do one final
+  // getParallelBatchStatus before deciding:
+  //   - winner found → keep the batch open so awaitingOutcome fires and the
+  //     BDR can register the outcome; load the research card.
+  //   - no winner → cancel whatever's still ringing, requeue every dialed
+  //     contact to the back of the local queue so the BDR moves on to fresh
+  //     contacts next round.
+  //
   // This runs as a genuine external-event callback (from the Twilio SDK's
   // own disconnect/cancel/error handlers inside useSoftphone), not a React
   // effect watching derived state, so it's fine to setState here directly.
   const handleAttemptEnded = useCallback(() => {
     if (activeCallIdRef.current) return;
     const endedBatch = batchRef.current;
-    if (endedBatch && accessToken) {
-      cancelParallelBatch(endedBatch.batchId, accessToken).catch(() => {
+    const token = accessToken;
+    if (!endedBatch || !token) {
+      setBatch(null);
+      setBatchStatus(null);
+      research.clear();
+      return;
+    }
+
+    const applyFinalStatus = (finalStatus: ParallelBatchStatus | null) => {
+      if (finalStatus?.winner) {
+        // Someone answered — surface the outcome modal and research card.
+        setBatchStatus(finalStatus);
+        void research.load(
+          finalStatus.winner.accountId,
+          finalStatus.winner.role,
+          finalStatus.winner.clientCompanyId,
+        );
+        return;
+      }
+      cancelParallelBatch(endedBatch.batchId, token).catch(() => {
         // best-effort — the legs will still resolve on their own via AMD/status callbacks
       });
       for (const leg of endedBatch.legs) {
         queue.requeuePersonId(leg.personId);
       }
-    }
-    setBatch(null);
-    setBatchStatus(null);
-    research.clear();
+      setBatch(null);
+      setBatchStatus(null);
+      research.clear();
+    };
+
+    void getParallelBatchStatus(endedBatch.batchId, token)
+      .then(applyFinalStatus)
+      .catch(() => applyFinalStatus(null));
   }, [accessToken, research, queue]);
 
   const softphone = useSoftphone(handleAttemptEnded);
