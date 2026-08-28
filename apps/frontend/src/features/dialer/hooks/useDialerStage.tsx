@@ -14,7 +14,6 @@ import {
   getParallelBatchStatus,
   type ParallelBatchSummary,
   type ParallelBatchStatus,
-  type ParallelLegStatus,
 } from "@/features/dialer/data/dialer-api";
 import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
@@ -27,28 +26,6 @@ const RETRY_WINDOW_SECONDS = 2;
 // Discagem paralela — up to 3 lines at once (2026-08-25). Polls the batch
 // while it's in flight; no push/websocket in v1.
 const BATCH_POLL_MS = 1500;
-
-// Mirrors CallsService's RETRY_ELIGIBLE_OUTCOMES: only a leg that ends up
-// FAILED (→ CallOutcome.INVALID_NUMBER) actually deactivates its
-// CadenceEnrollment on the backend. MACHINE_DETECTED (→ VOICEMAIL),
-// NO_ANSWER, BUSY, and ABANDONED (no outcome at all — lost the AMD race)
-// all leave the contact enrolled and re-dialable. Pruning those from the
-// local queue here — as every earlier version of this resolution logic
-// did — desyncs the frontend's view from the backend's: the next batch's
-// getQueue() legitimately picks the same person again, but their row no
-// longer exists locally for dialingPersonIds to find, so only the
-// genuinely-new candidates in that batch ever show "Discando". That's
-// exactly what produced "only 1 of 3 lines highlighted, one at a time,
-// from the second dial onward."
-const ENROLLMENT_DEACTIVATING_LEG_STATUSES = new Set<ParallelLegStatus>(["FAILED"]);
-
-function permanentlyResolvedPersonIds(
-  legs: Array<{ personId: string; status: ParallelLegStatus }>,
-): string[] {
-  return legs
-    .filter((leg) => ENROLLMENT_DEACTIVATING_LEG_STATUSES.has(leg.status))
-    .map((leg) => leg.personId);
-}
 
 export function useDialerStage() {
   const accessToken = useSessionStore((s) => s.accessToken);
@@ -154,14 +131,27 @@ export function useDialerStage() {
         if (cancelled) return;
         setBatchStatus(status);
 
+        // Losing legs are never pruned from the local queue here: today,
+        // the backend only ever deactivates a CadenceEnrollment inside
+        // updateOutcome — the route the outcome modal PATCHes, reachable
+        // only for the winner's call. handleParallelLegAmd/
+        // handleParallelLegStatus (which resolve every losing leg —
+        // MACHINE_DETECTED, NO_ANSWER, BUSY, FAILED, ABANDONED) only ever
+        // update the `calls` row, never CadenceEnrollment.active — so
+        // every one of those contacts is still genuinely enrolled and
+        // re-dialable, and the next getQueue() will offer them again
+        // regardless of what we do locally. Removing them here (as every
+        // earlier version of this logic did, even when narrowed to just
+        // FAILED) desyncs the local queue from that reality: the backend
+        // re-selects them next round, but their row no longer exists
+        // locally for dialingPersonIds to match, so only genuinely-new
+        // candidates ever show "Discando". The only local removal that
+        // stays correct is the winner's, once a real outcome is PATCHed
+        // (see finishAttempt) — that's the one case that actually changes
+        // CadenceEnrollment.active server-side today.
         const resolvedWinner = status.winner;
         if (resolvedWinner) {
           if (intervalId) clearInterval(intervalId);
-          const otherLegs = status.legs.filter(
-            (leg) => leg.personId !== resolvedWinner.personId,
-          );
-          const goneIds = permanentlyResolvedPersonIds(otherLegs);
-          if (goneIds.length > 0) queue.removeByPersonIds(goneIds);
           void research.load(
             resolvedWinner.accountId,
             resolvedWinner.role,
@@ -173,8 +163,6 @@ export function useDialerStage() {
         const allTerminal = status.legs.every((leg) => leg.status !== "RINGING");
         if (allTerminal) {
           if (intervalId) clearInterval(intervalId);
-          const goneIds = permanentlyResolvedPersonIds(status.legs);
-          if (goneIds.length > 0) queue.removeByPersonIds(goneIds);
           toast("Nenhuma das linhas foi atendida por uma pessoa.");
           // The BDR's own leg is still sitting in the batch's Conference
           // room — nothing else disconnects it when no line is answered,
