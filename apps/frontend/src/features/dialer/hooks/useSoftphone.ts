@@ -61,6 +61,12 @@ export function useSoftphone(onAttemptEnded?: () => void) {
           setError(twilioError.message);
           setStatus("error");
         });
+        // Renew the Twilio token before it expires (SDK fires this ~30s early)
+        device.on("tokenWillExpire", () => {
+          getVoiceToken(accessToken as string)
+            .then(({ token: newToken }) => device.updateToken(newToken))
+            .catch(() => {/* best-effort — if this fails the next call attempt will surface the error */});
+        });
         device.register();
         deviceRef.current = device;
       } catch (err) {

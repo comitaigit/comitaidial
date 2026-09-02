@@ -188,6 +188,11 @@ export function useDialerStage() {
     setSelectedOutcome(outcome);
   }, []);
 
+  const retryResearch = useCallback(() => {
+    if (!currentPerson) return;
+    void research.load(currentPerson.accountId, currentPerson.role, currentPerson.clientCompanyId);
+  }, [currentPerson, research]);
+
   return {
     softphone,
     cadencePicker,
@@ -205,6 +210,7 @@ export function useDialerStage() {
     hangup: softphone.hangup,
     finishAttempt,
     openOutcomeModal,
+    retryResearch,
     ringElapsedSeconds,
     callElapsedSeconds,
     sessionCallsMade,
