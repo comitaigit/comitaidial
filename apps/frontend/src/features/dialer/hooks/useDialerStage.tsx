@@ -7,9 +7,18 @@ import { useSoftphone } from "@/features/dialer/hooks/useSoftphone";
 import { useDialerQueue } from "@/features/dialer/hooks/useDialerQueue";
 import { useResearchCard } from "@/features/dialer/hooks/useResearchCard";
 import { useCadencePicker } from "@/features/dialer/hooks/useCadencePicker";
+import { useCallTimer } from "@/features/dialer/hooks/useCallTimer";
 import { getLatestCallForPerson } from "@/features/dialer/data/dialer-api";
 import { ContactOutcomeModal } from "@/features/dialer/components/ContactOutcomeModal";
 import type { OutcomeKind } from "@/features/dialer/hooks/useOutcomeForm";
+
+export type DialerOutcomeId =
+  | "meeting_booked"
+  | "follow_up"
+  | "voicemail"
+  | "no_interest"
+  | "wrong_contact"
+  | "invalid_number";
 
 // "Não atendeu / caixa postal / ocupado" hold the row for a short window
 // offering "ligar novamente" before it moves to the back of the queue.
@@ -29,12 +38,31 @@ export function useDialerStage() {
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Session stats — tracked locally since there's no real-time stats endpoint yet
+  const [dialingStartedAt, setDialingStartedAt] = useState<number | null>(null);
+  const [sessionCallsMade, setSessionCallsMade] = useState(0);
+  const [sessionConnections, setSessionConnections] = useState(0);
+  const prevStatusRef = useRef<typeof softphone.status>("idle");
+
+  // Outcome pre-selection in Estado 2 (visual — actual recording via modal)
+  const [selectedOutcome, setSelectedOutcome] = useState<DialerOutcomeId | null>(null);
+
+  // Ringing timer (Estado 1 DialCard) and connected call timer (Estado 2 CallHero)
+  const ringElapsedSeconds = useCallTimer(dialingStartedAt);
+  const callElapsedSeconds = useCallTimer(softphone.callStartedAt);
+
   const currentPerson = queue.currentPerson;
 
-  // Research card opens when the call connects — deep research is always
-  // post-connection, never pre-dial. Depends on answerOnBridge in the
-  // backend <Dial> so "in-call" only fires when the prospect actually picks
-  // up (not when ringing starts).
+  // Count connections when status transitions from connecting → in-call
+  useEffect(() => {
+    if (softphone.status === "in-call" && prevStatusRef.current === "connecting") {
+      setSessionConnections((n) => n + 1);
+    }
+    prevStatusRef.current = softphone.status;
+  }, [softphone.status]);
+
+  // Research card loads when the call connects — deep research is always
+  // post-connection, never pre-dial.
   useEffect(() => {
     if (softphone.status === "in-call" && currentPerson) {
       void research.load(currentPerson.accountId, currentPerson.role, currentPerson.clientCompanyId);
@@ -64,6 +92,8 @@ export function useDialerStage() {
       setAwaitingOutcome(false);
       setActiveCallId(null);
       setCalledPersonId(null);
+      setDialingStartedAt(null);
+      setSelectedOutcome(null);
       research.clear();
       closeModal();
 
@@ -135,6 +165,9 @@ export function useDialerStage() {
     setCalledPersonId(currentPerson.personId);
     setActiveCallId(null);
     setAwaitingOutcome(false);
+    setDialingStartedAt(Date.now());
+    setSessionCallsMade((n) => n + 1);
+    setSelectedOutcome(null);
     research.clear();
     void softphone.call(currentPerson.phone, currentPerson.personId);
   }, [currentPerson, softphone, research, clearCountdown]);
@@ -144,15 +177,16 @@ export function useDialerStage() {
     startCall();
   }, [clearCountdown, startCall]);
 
-  // "Pular contato" — the BDR doesn't want to call this specific contact
-  // right now. Sends it to the back of the queue, same as a retry-eligible
-  // outcome, but without dialing anything: no Call/Activity is recorded,
-  // since nothing was actually attempted.
+  // "Pular contato" — sends to the back of the queue without dialing.
   const skipCurrent = useCallback(() => {
     if (!currentPerson) return;
     clearCountdown();
     queue.requeuePersonId(currentPerson.personId);
   }, [currentPerson, queue, clearCountdown]);
+
+  const selectOutcome = useCallback((outcome: DialerOutcomeId) => {
+    setSelectedOutcome(outcome);
+  }, []);
 
   return {
     softphone,
@@ -171,5 +205,11 @@ export function useDialerStage() {
     hangup: softphone.hangup,
     finishAttempt,
     openOutcomeModal,
+    ringElapsedSeconds,
+    callElapsedSeconds,
+    sessionCallsMade,
+    sessionConnections,
+    selectedOutcome,
+    selectOutcome,
   };
 }
