@@ -128,7 +128,12 @@ export function useSoftphone(onAttemptEnded?: () => void) {
       activeCall.on("error", (callError) => {
         if (activeCallRef.current !== activeCall) return;
         setError(callError.message);
-        setLastDurationSeconds(null);
+        // If the call was already connected when the error fired, preserve the
+        // duration so the outcome modal still opens — null would silently skip it.
+        const startedAt = callStartedAtRef.current;
+        setLastDurationSeconds(
+          startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
+        );
         setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
         setStatus("ready");
@@ -191,7 +196,10 @@ export function useSoftphone(onAttemptEnded?: () => void) {
       activeCall.on("error", (callError) => {
         if (activeCallRef.current !== activeCall) return;
         setError(callError.message);
-        setLastDurationSeconds(null);
+        const startedAt = callStartedAtRef.current;
+        setLastDurationSeconds(
+          startedAt ? Math.round((Date.now() - startedAt) / 1000) : null,
+        );
         setAttemptEndedAt(Date.now());
         callStartedAtRef.current = null;
         setStatus("ready");
