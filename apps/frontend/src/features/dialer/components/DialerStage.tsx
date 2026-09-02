@@ -130,11 +130,15 @@ export function DialerStage() {
 
         {/* Active dial card when connecting */}
         {isDialing && currentPerson ? (
-          <div className="max-w-[280px]">
+          <div className="max-w-[300px]">
             <DialCard
               contactName={currentPerson.name}
               title={currentPerson.role ?? ""}
               company={currentPerson.accountName}
+              phone={currentPerson.phone}
+              linkedinUrl={currentPerson.linkedinUrl}
+              callAttemptsCount={currentPerson.callAttemptsCount}
+              lastOutcome={currentPerson.lastOutcome}
               secondsRinging={ringElapsedSeconds}
               onSkip={skipCurrent}
             />

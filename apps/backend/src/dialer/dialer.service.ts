@@ -21,6 +21,9 @@ export type QueueItem = {
   lastActivity: string | null;
   cadenceId: string;
   clientCompanyId: string;
+  linkedinUrl: string | null;
+  callAttemptsCount: number;
+  lastOutcome: string | null;
 };
 
 export type ResearchObjection = { objection: string; response: string };
@@ -128,6 +131,27 @@ export class DialerService {
       }
     }
 
+    // Call history per person — count attempts and surface last classified outcome
+    const recentCalls = personIds.length
+      ? await this.prisma.call.findMany({
+          where: { tenantId, personId: { in: personIds } },
+          orderBy: { createdAt: 'desc' },
+          select: { personId: true, outcome: true },
+        })
+      : [];
+    const callCountByPerson = new Map<string, number>();
+    const lastOutcomeByPerson = new Map<string, string | null>();
+    for (const call of recentCalls) {
+      if (!call.personId) continue;
+      callCountByPerson.set(
+        call.personId,
+        (callCountByPerson.get(call.personId) ?? 0) + 1,
+      );
+      if (!lastOutcomeByPerson.has(call.personId)) {
+        lastOutcomeByPerson.set(call.personId, call.outcome ?? null);
+      }
+    }
+
     return dialable
       .map((p) => ({
         personId: p.id,
@@ -141,6 +165,9 @@ export class DialerService {
         lastActivity: lastActivityByPerson.get(p.id) ?? null,
         cadenceId: cadence.id,
         clientCompanyId: cadence.clientCompanyId as string,
+        linkedinUrl: p.linkedinUrl ?? null,
+        callAttemptsCount: callCountByPerson.get(p.id) ?? 0,
+        lastOutcome: lastOutcomeByPerson.get(p.id) ?? null,
       }))
       .sort((a, b) => {
         // Manual order (set by dragging in the Dialer) wins outright once

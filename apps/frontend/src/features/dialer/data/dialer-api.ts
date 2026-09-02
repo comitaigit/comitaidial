@@ -28,6 +28,9 @@ export type QueueItem = {
   lastActivity: string | null;
   cadenceId: string;
   clientCompanyId: string;
+  linkedinUrl: string | null;
+  callAttemptsCount: number;
+  lastOutcome: string | null;
 };
 
 export type DialerCadence = {
