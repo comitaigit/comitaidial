@@ -29,6 +29,37 @@ export type TaskListItem = {
   summary: string | null;
 };
 
+export type HomeTask = {
+  id: string;
+  status: "done" | "overdue" | "active" | "pending";
+  time: string;
+  type: "call" | "meeting" | "followup" | "proposal" | "email";
+  contactName: string;
+  company: string;
+  context?: string;
+  signal?: boolean;
+  actionLabel: string;
+  actionHref: string;
+};
+
+export type CargoRow = {
+  label: string;
+  count: number;
+  percentage: number;
+  highlight?: "success" | "danger";
+};
+
+export type CargoBreakdown = {
+  conversations: CargoRow[];
+  meetings: CargoRow[];
+};
+
+export type HeatmapData = {
+  data: number[][];
+  hours: string[];
+  days: string[];
+};
+
 export type Funnel = {
   attempts: number;
   connected: number;
@@ -88,4 +119,35 @@ export function getTaskList(accessToken: string): Promise<TaskListItem[]> {
 
 export function getFunnel(accessToken: string, days: WindowDays): Promise<Funnel> {
   return request<Funnel>(`/overview/funnel?days=${days}`, accessToken);
+}
+
+// Derives a HomeTask from the existing TaskListItem shape.
+// The backend doesn't yet expose task type / action — defaults to "call".
+export function toHomeTask(item: TaskListItem): HomeTask {
+  const dueAt = new Date(item.dueAt);
+  const now = new Date();
+  const isOverdue = dueAt < now;
+  const diffMs = dueAt.getTime() - now.getTime();
+  const isSoon = !isOverdue && diffMs < 30 * 60_000;
+
+  const status: HomeTask["status"] = isOverdue ? "overdue" : isSoon ? "active" : "pending";
+
+  const h = dueAt.getHours().toString().padStart(2, "0");
+  const m = dueAt.getMinutes().toString().padStart(2, "0");
+  const time = isOverdue ? "Vencida" : isSoon ? "Agora" : `${h}h${m}`;
+
+  const actionLabel =
+    status === "overdue" ? "Resolver →" : status === "active" ? "Entrar →" : "Ligar →";
+
+  return {
+    id: item.id,
+    status,
+    time,
+    type: "call",
+    contactName: item.prospectName,
+    company: item.companyName,
+    context: item.summary ?? undefined,
+    actionLabel,
+    actionHref: "/dialer",
+  };
 }

@@ -8,6 +8,7 @@ export function NavLink({
   label,
   icon,
   badge,
+  badgeVariant,
   active,
   collapsed,
 }: NavItem & { active: boolean; collapsed: boolean }) {
@@ -15,40 +16,42 @@ export function NavLink({
     <Link
       href={href}
       className={cn(
-        "my-0.5 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[#cbd0d8] transition-colors duration-150",
+        "my-px flex w-full items-center gap-[9px] rounded-[6px] px-2.5 py-[7px] text-[12.5px] transition-colors duration-150",
         collapsed ? "justify-center" : "justify-between",
-        active ? "bg-dark-2 text-white" : "hover:bg-dark-2 hover:text-white"
+        active
+          ? "bg-[#2563EB] font-semibold text-white"
+          : "font-normal text-[#4a4a4a] hover:text-[#a1a1aa]",
       )}
     >
-      <span className="flex items-center gap-2.5 overflow-hidden">
+      <span className="flex items-center gap-[9px] overflow-hidden">
         <span aria-hidden className="shrink-0">
           {icon}
         </span>
         <span
           className={cn(
             "overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200 ease-in-out",
-            collapsed ? "max-w-0 opacity-0" : "max-w-40 opacity-100"
+            collapsed ? "max-w-0 opacity-0" : "max-w-40 opacity-100",
           )}
         >
           {label}
         </span>
       </span>
-      <span
-        className={cn(
-          "overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200 ease-in-out",
-          collapsed || !badge ? "max-w-0 opacity-0" : "max-w-10 opacity-100"
-        )}
-      >
-        {badge && (
-          <span className="rounded-full border border-[#424753] px-1.5 py-0.5 text-[10px]">
-            {badge}
-          </span>
-        )}
-      </span>
+      {badge && !collapsed && (
+        <span
+          className={cn(
+            "ml-auto flex min-w-[16px] items-center justify-center rounded-full px-1 py-px text-[9px] font-bold text-white",
+            badgeVariant === "danger" ? "bg-[#EF4444]" : "bg-[#F59E0B]",
+          )}
+        >
+          {badge}
+        </span>
+      )}
     </Link>
   );
 
   if (!collapsed) return link;
 
-  return <Tooltip label={badge ? `${label} · ${badge}` : label}>{link}</Tooltip>;
+  return (
+    <Tooltip label={badge ? `${label} · ${badge}` : label}>{link}</Tooltip>
+  );
 }

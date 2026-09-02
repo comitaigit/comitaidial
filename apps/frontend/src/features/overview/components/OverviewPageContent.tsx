@@ -1,70 +1,87 @@
 "use client";
 
 import Link from "next/link";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { Button } from "@/components/ui/Button";
-import { KpiCard } from "@/features/overview/components/KpiCard";
-import { WindowFilter } from "@/features/overview/components/WindowFilter";
-import { ContentPillCard } from "@/features/overview/components/ContentPillCard";
-import { TaskListCard } from "@/features/overview/components/TaskListCard";
 import { useOverviewPage } from "@/features/overview/hooks/useOverviewPage";
+import { HeroMetric } from "@/features/overview/components/HeroMetric";
+import { HomeTaskManager } from "@/features/overview/components/HomeTaskManager";
+import { CargoTables } from "@/features/overview/components/CargoTables";
+import { CallHeatmap } from "@/features/overview/components/CallHeatmap";
+import { FooterStats } from "@/features/overview/components/FooterStats";
 
-function pct(value: number): string {
-  return `${(value * 100).toFixed(0)}%`;
-}
+// Empty heatmap until /overview/heatmap endpoint is available.
+const EMPTY_HOURS = ["8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h"];
+const EMPTY_DAYS: string[] = [];
+const EMPTY_DATA: number[][] = [];
 
 export function OverviewPageContent() {
   const {
-    bdrName,
-    windowDays,
-    changeWindow,
-    kpis,
+    greeting,
+    dateStr,
+    conversations,
+    meetingsScheduled,
     isKpisLoading,
-    kpisError,
-    pill,
-    isPillLoading,
-    pillError,
-    tasks,
+    homeTasks,
+    pendingCount,
+    doneCount,
     isTasksLoading,
     tasksError,
+    footerCalls,
+    footerConnectionRate,
   } = useOverviewPage();
 
   return (
-    <section>
-      <PageHeader
-        title={bdrName ? `Visão geral, ${bdrName}` : "Visão geral"}
-        subtitle="Seu foco é gerar mais conversas reais a partir das ligações do Dialer."
-        actions={
-          <Link href="/dialer">
-            <Button variant="primary">Ir para o Dialer</Button>
-          </Link>
-        }
+    <div className="text-[#0f172a]">
+      {/* TopBar: greeting + date + CTA */}
+      <div className="mb-7 flex items-baseline justify-between">
+        <div>
+          <span className="text-[15px] font-medium text-[#0f172a]">{greeting}</span>
+          {greeting && <span className="mx-2 text-[15px] text-[#cbd5e1]">·</span>}
+          <span className="text-[14px] text-[#94a3b8]">{dateStr}</span>
+        </div>
+        <Link
+          href="/dialer"
+          className="flex items-center gap-[7px] rounded-[8px] bg-[#0f172a] px-5 py-[9px] text-[13px] font-semibold tracking-[-0.2px] text-white transition-colors duration-150 hover:bg-[#1e293b]"
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <path
+              d="M2 2h2.2L5.5 4.8 4.2 5.8c.6 1.4 2.2 2.9 3.6 3.5l1.1-1.3 2.8 1.3v2.2c0 .4-.4.7-.8.6C4.2 10.8 1 7.5 1.5 3c0-.4.3-.8.5-1z"
+              fill="white"
+            />
+          </svg>
+          Iniciar Dialer
+        </Link>
+      </div>
+
+      {/* Hero metric */}
+      <HeroMetric
+        conversations={conversations}
+        meetingsScheduled={meetingsScheduled}
+        isLoading={isKpisLoading}
       />
 
-      <WindowFilter value={windowDays} onChange={changeWindow} />
+      <div className="mb-4 h-px bg-[#f1f5f9]" />
 
-      {kpisError ? (
-        <p className="mt-3.5 text-sm text-bad">{kpisError}</p>
-      ) : isKpisLoading ? (
-        <p className="mt-3.5 text-sm text-muted">Carregando KPIs…</p>
-      ) : (
-        <div className="mt-3.5 grid grid-cols-2 gap-3.5 lg:grid-cols-3">
-          <KpiCard label="Tentativas" value={kpis?.attempts ?? 0} />
-          <KpiCard label="Conectadas" value={kpis?.connected ?? 0} />
-          <KpiCard label="Conversas reais" value={kpis?.conversations ?? 0} />
-          <KpiCard label="Reuniões agendadas" value={kpis?.meetingsScheduled ?? 0} />
-          <KpiCard label="Connect rate" value={kpis ? pct(kpis.connectRate) : "0%"} />
-          <KpiCard label="Conversation rate" value={kpis ? pct(kpis.conversationRate) : "0%"} />
-        </div>
-      )}
+      {/* Task manager */}
+      <HomeTaskManager
+        tasks={homeTasks}
+        pendingCount={pendingCount}
+        doneCount={doneCount}
+        isLoading={isTasksLoading}
+        error={tasksError}
+      />
 
-      <div className="mt-3.5">
-        <ContentPillCard pill={pill} isLoading={isPillLoading} error={pillError} />
-      </div>
+      <div className="mb-4 h-px bg-[#f1f5f9]" />
 
-      <div className="mt-3.5">
-        <TaskListCard tasks={tasks} isLoading={isTasksLoading} error={tasksError} />
-      </div>
-    </section>
+      {/* Cargo breakdown tables */}
+      <CargoTables conversations={[]} meetings={[]} />
+
+      <div className="mb-4 h-px bg-[#f1f5f9]" />
+
+      {/* Call heatmap */}
+      <CallHeatmap data={EMPTY_DATA} hours={EMPTY_HOURS} days={EMPTY_DAYS} />
+
+      {/* Footer stats */}
+      <FooterStats calls={footerCalls} connectionRate={footerConnectionRate} />
+    </div>
   );
 }
