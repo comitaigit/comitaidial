@@ -294,7 +294,7 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
 "objections" deve ter 2-3 itens. "battlecards" deve ter até 3 itens.`;
 
     const message = await this.anthropic.messages.create({
-      model: 'claude-opus-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     });
