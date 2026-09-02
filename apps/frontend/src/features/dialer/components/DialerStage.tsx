@@ -99,16 +99,14 @@ export function DialerStage() {
       />
 
       <div className="flex flex-col gap-6 px-9 pb-10 pt-7">
-        {/* Cadence picker — only shown until a cadence is selected */}
-        {cadencePicker.isIncomplete && (
-          <CadencePicker
-            cadences={cadencePicker.cadences}
-            isLoading={cadencePicker.isLoading}
-            selectedCadenceId={cadencePicker.selectedCadenceId}
-            onChange={cadencePicker.setSelectedCadenceId}
-            isIncomplete={cadencePicker.isIncomplete}
-          />
-        )}
+        {/* Cadence picker — always visible so the cadence can be changed at any time */}
+        <CadencePicker
+          cadences={cadencePicker.cadences}
+          isLoading={cadencePicker.isLoading}
+          selectedCadenceId={cadencePicker.selectedCadenceId}
+          onChange={cadencePicker.setSelectedCadenceId}
+          isIncomplete={cadencePicker.isIncomplete}
+        />
 
         {/* Errors */}
         {softphone.error && (

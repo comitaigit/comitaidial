@@ -21,6 +21,7 @@ export const NAV_GROUP2: NavItem[] = [
   { href: "/metrics", label: "KPI Targets", icon: "⌁" },
   { href: "/health", label: "Saúde dos canais", icon: "♡" },
   { href: "/accounts", label: "Accounts", icon: "▤" },
+  { href: "/settings", label: "Workspace", icon: "⚙" },
 ];
 
 // Legacy exports kept for any other consumer that hasn't been updated yet.
