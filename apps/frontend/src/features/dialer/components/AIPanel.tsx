@@ -3,10 +3,14 @@ import type { AccountResearch } from "@/features/dialer/data/dialer-api";
 export function AIPanel({
   research,
   status,
+  error,
+  onRetry,
   contact,
 }: {
   research: AccountResearch | null;
   status: "idle" | "loading" | "loaded" | "error";
+  error: string | null;
+  onRetry: () => void;
   contact: { name: string; company: string; role: string | null } | null;
 }) {
   return (
@@ -41,7 +45,18 @@ export function AIPanel({
           <p className="text-[13px] leading-[1.6] text-[#94A3B8]">Gerando contexto…</p>
         )}
         {(status === "error" || (status === "loaded" && !research)) && (
-          <p className="text-[13px] text-[#DC2626]">Não foi possível gerar o contexto.</p>
+          <div className="space-y-2">
+            <p className="text-[13px] text-[#DC2626]">Não foi possível gerar o contexto.</p>
+            {error && (
+              <p className="text-[11px] text-[#EF4444]">{error}</p>
+            )}
+            <button
+              onClick={onRetry}
+              className="mt-1 text-[12px] font-[600] text-[#2563EB] hover:underline"
+            >
+              Tentar novamente
+            </button>
+          </div>
         )}
         {status === "loaded" && research && (
           <div className="space-y-5">

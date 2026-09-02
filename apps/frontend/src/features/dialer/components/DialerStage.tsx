@@ -33,6 +33,7 @@ export function DialerStage() {
     sessionConnections,
     selectedOutcome,
     selectOutcome,
+    retryResearch,
   } = useDialerStage();
 
   const connectionRate =
@@ -73,6 +74,8 @@ export function DialerStage() {
           <AIPanel
             research={research.research}
             status={research.status}
+            error={research.error}
+            onRetry={retryResearch}
             contact={{
               name: currentPerson.name,
               company: currentPerson.accountName,
