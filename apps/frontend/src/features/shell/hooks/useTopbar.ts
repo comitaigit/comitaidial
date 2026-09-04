@@ -3,9 +3,11 @@
 import { useRouter } from "next/navigation";
 import { logout } from "@/features/auth/data/auth-api";
 import { useSessionStore } from "@/features/shell/stores/session-store";
+import { useActiveCadenceStore } from "@/features/shell/stores/active-cadence-store";
 
 export function useTopbar() {
   const { user, accessToken, clearSession } = useSessionStore();
+  const activeCadenceLabel = useActiveCadenceStore((s) => s.label);
   const router = useRouter();
 
   async function handleLogout() {
@@ -19,5 +21,5 @@ export function useTopbar() {
     router.replace("/login");
   }
 
-  return { user, handleLogout };
+  return { user, activeCadenceLabel, handleLogout };
 }

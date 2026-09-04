@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { useTopbar } from "@/features/shell/hooks/useTopbar";
 
 export function Topbar() {
-  const { user, handleLogout } = useTopbar();
+  const { user, activeCadenceLabel, handleLogout } = useTopbar();
   const initial = user?.name?.[0]?.toUpperCase() ?? "?";
 
   return (
@@ -12,7 +12,7 @@ export function Topbar() {
       <div>
         <b className="block text-sm">Workspace Comitai</b>
         <span className="text-xs text-muted">
-          Tenant: comitai-internal · Conta: Humand
+          {activeCadenceLabel ?? "Nenhuma cadência selecionada no Dialer"}
         </span>
       </div>
       <div className="flex items-center gap-2.5">

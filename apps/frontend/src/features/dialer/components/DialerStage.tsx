@@ -1,75 +1,217 @@
 "use client";
 
-import { Card, CardHead, CardTitle } from "@/components/ui/Card";
-import { Tag } from "@/components/ui/Tag";
-import { Button } from "@/components/ui/Button";
-import type { DialerBlockData } from "@/features/dialer/data/dialer";
+import { CadencePicker } from "@/features/dialer/components/CadencePicker";
+import { SessionBar } from "@/features/dialer/components/SessionBar";
+import { ParallelDialCards } from "@/features/dialer/components/ParallelDialCards";
+import { ContactQueue } from "@/features/dialer/components/ContactQueue";
+import { ConnectedStatusBar } from "@/features/dialer/components/ConnectedStatusBar";
+import { CallHero } from "@/features/dialer/components/CallHero";
+import { OutcomeGrid } from "@/features/dialer/components/OutcomeGrid";
+import { CallActions } from "@/features/dialer/components/CallActions";
+import { OtherLinesPanel } from "@/features/dialer/components/OtherLinesPanel";
+import { AIPanel } from "@/features/dialer/components/AIPanel";
 import { useDialerStage } from "@/features/dialer/hooks/useDialerStage";
-import { OutcomePanel } from "@/features/dialer/components/OutcomePanel";
 
-export function DialerStage({ block }: { block: DialerBlockData }) {
+export function DialerStage() {
   const {
-    dialing,
-    connected,
-    lines,
-    title,
-    subtitle,
-    pulse,
-    startDial,
-    stopDial,
-    handleOutcomeSaved,
-  } = useDialerStage(block);
+    softphone,
+    cadencePicker,
+    queue,
+    research,
+    winner,
+    legs,
+    legStatuses,
+    batchPhase,
+    awaitingOutcome,
+    pendingResultKind,
+    retryCountdown,
+    startBatch,
+    retryNow,
+    skipCurrent,
+    hangup,
+    cancelCurrentBatch,
+    openOutcomeModal,
+    ringElapsedSeconds,
+    callElapsedSeconds,
+    sessionCallsMade,
+    sessionConnections,
+    selectedOutcome,
+    selectOutcome,
+    retryResearch,
+    suggestedScript,
+  } = useDialerStage();
 
-  return (
-    <div className="grid gap-3.5 lg:grid-cols-[1.05fr_0.95fr]">
-      <Card>
-        <CardHead>
-          <CardTitle>Bloco: {block.blockName}</CardTitle>
-          <Tag>{block.contactsRemaining} contatos restantes</Tag>
-        </CardHead>
-        <div className="p-4.5">
-          <div className="p-5.5 text-center">
-            <div className="mx-auto mb-3 grid h-18.5 w-18.5 place-items-center rounded-full border-2 border-dashed border-[#8d95a3] text-[22px] font-black">
-              {pulse}
-            </div>
-            <h2 className="m-0 mb-1.5 text-lg">{title}</h2>
-            <p className="text-[13px] text-muted">{subtitle}</p>
-          </div>
+  const connectionRate =
+    sessionCallsMade > 0 ? Math.round((sessionConnections / sessionCallsMade) * 100) : 0;
+  const progressPercent =
+    sessionCallsMade > 0 ? Math.min(Math.round((sessionCallsMade / 80) * 100), 100) : 0;
 
-          <div className="my-4 grid grid-cols-3 gap-2">
-            {lines.map((state, i) => (
-              <div
-                key={i}
-                className="rounded-[10px] border border-line bg-[#fafbfc] p-2.5 text-center"
-              >
-                <span className="text-[10px] text-muted">Linha {i + 1}</span>
-                <strong className="mt-0.5 block text-xs">{state}</strong>
-              </div>
-            ))}
-          </div>
+  const isReady = softphone.status === "ready";
+  const isDialing = batchPhase === "dialing";
+  const isConnected = batchPhase === "connected" && !!winner;
 
-          <div className="flex justify-center gap-2">
-            <Button variant="primary" onClick={startDial} disabled={dialing}>
-              Iniciar discagem 3x
-            </Button>
-            <Button variant="bad" onClick={stopDial} disabled={!dialing}>
-              Encerrar bloco
-            </Button>
-          </div>
+  const canCall =
+    isReady && !!queue.currentPerson && batchPhase === "idle" && !cadencePicker.isIncomplete;
+  const canSkip = isReady && !!queue.currentPerson && batchPhase === "idle";
 
-          <div className="mt-4 rounded-[9px] border border-dashed border-[#a6b1c1] bg-[#fafbfc] p-2.5 text-xs leading-relaxed">
-            Toda tentativa cria uma <b>Interaction</b>, mesmo sem conexão.
-            Caixa postal não conta como conversa humana. Dois atendimentos
-            simultâneos geram registro explícito de abandono.
-          </div>
+  // Estado 2: a real prospect answered — split-panel layout
+  if (isConnected && winner) {
+    return (
+      <div className="-mx-4 sm:-mx-5.5 -mt-4 sm:-mt-5.5 flex min-h-[600px]">
+        {/* Left panel — 460px fixed */}
+        <div className="flex w-[460px] shrink-0 flex-col border-r border-[#F1F5F9]">
+          <ConnectedStatusBar contactName={winner.name} />
+          <CallHero
+            name={winner.name}
+            title={winner.role ?? ""}
+            company={winner.accountName}
+            elapsedSeconds={callElapsedSeconds}
+          />
+          <div className="h-px bg-[#F1F5F9]" />
+          <OutcomeGrid selected={selectedOutcome} onSelect={selectOutcome} />
+          <div className="h-px bg-[#F1F5F9]" />
+          <CallActions onEnd={hangup} />
+          <OtherLinesPanel lines={[]} />
         </div>
-      </Card>
 
-      <OutcomePanel
-        block={block}
-        active={connected}
-        onOutcomeSaved={handleOutcomeSaved}
+        {/* Right panel — flex:1 */}
+        <div className="flex-1 overflow-hidden">
+          <AIPanel
+            research={research.research}
+            status={research.status}
+            error={research.error}
+            onRetry={retryResearch}
+            contact={{
+              name: winner.name,
+              company: winner.accountName,
+              role: winner.role,
+            }}
+            suggestedScript={suggestedScript}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Estado 1: ready / dialing / idle
+  return (
+    <div className="-mx-4 sm:-mx-5.5 -mt-4 sm:-mt-5.5 flex flex-col bg-white">
+      <SessionBar
+        callsMade={sessionCallsMade}
+        callsGoal={80}
+        connections={sessionConnections}
+        connectionRate={connectionRate}
+        conversations={0}
+        conversationsGoal={15}
+        progressPercent={progressPercent}
+        onPause={() => {}}
       />
+
+      <div className="flex flex-col gap-6 px-9 pb-10 pt-7">
+        {/* Cadence picker — always visible so the cadence can be changed at any time */}
+        <CadencePicker
+          cadences={cadencePicker.cadences}
+          isLoading={cadencePicker.isLoading}
+          selectedCadenceId={cadencePicker.selectedCadenceId}
+          onChange={cadencePicker.setSelectedCadenceId}
+          isIncomplete={cadencePicker.isIncomplete}
+        />
+
+        {/* Errors */}
+        {softphone.error && (
+          <p className="text-[13px] text-[#DC2626]">{softphone.error}</p>
+        )}
+        {queue.error && (
+          <p className="text-[13px] text-[#DC2626]">{queue.error}</p>
+        )}
+
+        {/* Heading */}
+        <div>
+          <h2 className="text-[18px] font-[600] tracking-[-0.3px] text-[#0F172A]">
+            {isDialing
+              ? `Discando agora · ${legs.length} ${legs.length === 1 ? "linha ativa" : "linhas ativas"}`
+              : "Aguardando · Iniciar discagem"}
+          </h2>
+          {!isDialing && queue.currentPerson && (
+            <p className="mt-0.5 text-[13px] text-[#94A3B8]">
+              Próximo: {queue.currentPerson.name} · {queue.currentPerson.accountName}
+            </p>
+          )}
+        </div>
+
+        {/* Up to 3 parallel dial cards while a batch is in flight */}
+        {isDialing ? (
+          <div className="max-w-[720px]">
+            <ParallelDialCards
+              legs={legs}
+              legStatuses={legStatuses}
+              secondsRinging={ringElapsedSeconds}
+              onCancel={cancelCurrentBatch}
+            />
+          </div>
+        ) : (
+          /* CTA buttons when ready */
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={startBatch}
+              disabled={!canCall}
+              className="rounded-[8px] bg-[#0F172A] px-5 py-2.5 text-[14px] font-[700] text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Iniciar discagem
+            </button>
+            {pendingResultKind === "retry" && retryCountdown !== null && (
+              <button
+                onClick={retryNow}
+                className="rounded-[8px] border border-[#E2E8F0] bg-white px-4 py-2.5 text-[13px] font-medium text-[#64748B] transition-colors hover:bg-[#F8FAFC]"
+              >
+                Ligar novamente ({retryCountdown}s)
+              </button>
+            )}
+            {canSkip && (
+              <button
+                onClick={skipCurrent}
+                className="text-[13px] text-[#94A3B8] transition-colors hover:text-[#64748B]"
+              >
+                Pular contato
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Outcome pending banner */}
+        {awaitingOutcome && winner && (
+          <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3">
+            <p className="text-[13px] text-[#15803D]">
+              Outcome pendente para{" "}
+              <span className="font-[600]">{winner.name}</span> — classifique antes de
+              avançar.
+            </p>
+            <button
+              onClick={openOutcomeModal}
+              className="shrink-0 rounded-[8px] bg-[#16A34A] px-3 py-1.5 text-[12px] font-[600] text-white transition-colors hover:bg-[#15803D]"
+            >
+              Registrar
+            </button>
+          </div>
+        )}
+
+        {/* Softphone status for non-ready states */}
+        {softphone.status === "registering" && (
+          <p className="text-[13px] text-[#94A3B8]">Conectando softphone…</p>
+        )}
+        {softphone.status === "idle" && (
+          <p className="text-[13px] text-[#94A3B8]">Softphone desconectado.</p>
+        )}
+        {softphone.status === "error" && (
+          <p className="text-[13px] text-[#DC2626]">Erro no softphone.</p>
+        )}
+
+        {/* Queue */}
+        <ContactQueue
+          contacts={isDialing ? queue.queue.slice(legs.length) : queue.queue}
+          onRemove={(personId) => queue.removeByPersonIds([personId])}
+        />
+      </div>
     </div>
   );
 }

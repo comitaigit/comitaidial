@@ -13,13 +13,52 @@ datasource db {
   provider = "postgresql"
 }
 
+// --- Multi-tenancy ---
+// Every domain table below is scoped to a Tenant from its first migration —
+// see the Dial spec (founder, 2026-08-24). RefreshToken/LoginEvent are
+// deliberately NOT given their own tenantId: they're pure auth plumbing,
+// always looked up by tokenHash or userId (never listed per-tenant), and
+// userId already transitively scopes them — a duplicate column there would
+// be dead weight, not a real isolation boundary.
+model Tenant {
+  id   String @id @default(uuid())
+  name String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  accounts           Account[]
+  people             Person[]
+  cadences           Cadence[]
+  cadenceSteps       CadenceStep[]
+  cadenceEnrollments CadenceEnrollment[]
+  calls              Call[]
+  signals            Signal[]
+  activities         Activity[]
+  tasks              Task[]
+  accountResearch    AccountResearch[]
+  goals              Goal[]
+  clientCompanies    ClientCompany[]
+  dialBatches        DialBatch[]
+
+  @@map("tenants")
+}
+
 enum Role {
   ADMIN
   MEMBER
 }
 
 model User {
-  id    String @id @default(uuid())
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Globally unique for now (single-tenant user base in practice — no
+  /// tenant signup/invite flow exists yet). Revisit if/when a person needs
+  /// logins in two different tenants under the same email.
   email String @unique
   name  String
 
@@ -35,12 +74,17 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
-  createdAt DateTime @updatedAt @default(now())
+  createdAt DateTime @default(now()) @updatedAt
   updatedAt DateTime @updatedAt
 
   refreshTokens RefreshToken[]
   loginEvents   LoginEvent[]
+  activities    Activity[]
+  calls         Call[]
+  goals         Goal[]
+  dialBatches   DialBatch[]
 
+  @@index([tenantId])
   @@map("users")
 }
 
@@ -63,7 +107,7 @@ model RefreshToken {
 
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("refresh_tokens")
@@ -96,4 +140,606 @@ model LoginEvent {
   @@index([userId])
   @@index([email])
   @@map("login_events")
+}
+
+// --- Domain: Accounts, Prospects, Cadences, Activities, Calls, Signals ---
+// See ../../.claude/skills/business-rules-authoring/SKILL.md for the source
+// business rules these fields encode (pain from transcript, manual priority/
+// influence, the 30s conversation rule, the parallel-dial tie-break rule).
+
+enum AccountPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model Account {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name    String
+  /// Unique per tenant, not globally — two unrelated Comitai customers can
+  /// both be prospecting the same real-world company.
+  domain  String?
+  segment String?
+
+  /// Manual, set by the rep — HIGH/MEDIUM/LOW ("alta"/"média"/"baixa").
+  priority AccountPriority?
+
+  /// Free text extracted from call transcripts by the AI pipeline (not yet
+  /// wired up). Null means "não mapeada" — never inferred without enough
+  /// transcript data, per the founder's rule captured 2026-08-21.
+  pain String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  people     Person[]
+  signals    Signal[]
+  activities Activity[]
+  tasks      Task[]
+  research   AccountResearch[]
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+  @@map("accounts")
+}
+
+enum InfluenceLevel {
+  FINANCIAL_DECISION_MAKER
+  DIRECT_INFLUENCER
+  OPERATIONAL_DECISION_MAKER
+  INDIRECT_INFLUENCER
+}
+
+model Person {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  name String
+  role String?
+
+  email       String?
+  phone       String?
+  linkedinUrl String?
+
+  /// Manual, set by the rep — decisor financeiro / influenciador direto /
+  /// decisor operacional / influenciador indireto.
+  influenceLevel InfluenceLevel?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadenceEnrollments CadenceEnrollment[]
+  calls              Call[]
+  activities         Activity[]
+  signals            Signal[]
+  tasks              Task[]
+
+  @@index([tenantId])
+  @@index([accountId])
+  @@map("people")
+}
+
+enum CadenceStepType {
+  CALL
+  AUTOMATIC_EMAIL
+  MANUAL_EMAIL
+  MANUAL_SMS
+  WHATSAPP_MESSAGE
+  ACTION_ITEM
+  LINKEDIN_CONNECTION_REQUEST
+  LINKEDIN_MESSAGE
+}
+
+/// The company/product a cadence is prospecting on behalf of — Comitai runs
+/// outbound for multiple client companies, and the AI research/battlecards
+/// need to speak to whichever one a given cadence represents, not always
+/// Comitai's own positioning. A cadence with no clientCompanyId is
+/// "incomplete": the Dialer refuses to start dialing it until this is set,
+/// per the founder's 2026-08-25 decision — no silent fallback to a default.
+model ClientCompany {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  mainProduct String
+
+  /// Free text — differentiators, positioning, whatever helps the LLM write
+  /// a sharper battlecard. Optional; the prompt works with just name+product.
+  positioning String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadences        Cadence[]
+  accountResearch AccountResearch[]
+
+  @@index([tenantId])
+  @@map("client_companies")
+}
+
+model Cadence {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name   String
+  active Boolean @default(true)
+
+  /// Nullable — see ClientCompany's doc comment. SetNull (not Cascade) on
+  /// delete: losing the client company record shouldn't destroy the
+  /// cadence, just knock it back to "incomplete".
+  clientCompanyId String?
+  clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps       CadenceStep[]
+  enrollments CadenceEnrollment[]
+  dialBatches DialBatch[]
+
+  @@index([tenantId])
+  @@index([clientCompanyId])
+  @@map("cadences")
+}
+
+model CadenceStep {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  /// Position within the cadence — steps execute in this order, not by day
+  /// offset alone (two steps can share a day offset).
+  order     Int
+  dayOffset Int
+  type      CadenceStepType
+
+  /// LinkedIn-only gating: don't advance to the next step until the
+  /// connection request is accepted (mirrors the Nooks-style builder).
+  waitForConnectionAccepted Boolean @default(false)
+
+  notes String?
+
+  @@unique([cadenceId, order])
+  @@index([tenantId])
+  @@index([cadenceId])
+  @@map("cadence_steps")
+}
+
+model CadenceEnrollment {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  currentStepOrder Int     @default(0)
+  active           Boolean @default(true)
+
+  /// Manual position in the Dialer queue for this cadence, set by dragging
+  /// a row — null means "not manually placed yet", falls back to the
+  /// priority-based default order. Once any row in a cadence is dragged,
+  /// the whole cadence's queue is re-numbered so order is unambiguous.
+  queuePosition Int?
+
+  enrolledAt DateTime @default(now())
+
+  @@unique([cadenceId, personId])
+  @@index([tenantId])
+  @@index([personId])
+  @@map("cadence_enrollments")
+}
+
+// Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome
+// set entirely. "Não atendeu" is the standardized label everywhere in the
+// product (was "Só chamou").
+enum CallOutcome {
+  VOICEMAIL
+  WRONG_PERSON
+  BUSY
+  NO_ANSWER
+  INVALID_NUMBER
+  CALLBACK_REQUESTED
+  MEETING_SCHEDULED
+  NOT_INTERESTED
+}
+
+// Sub-reason captured only when outcome = NOT_INTERESTED.
+enum NotInterestedReason {
+  BUDGET
+  NOT_INTERESTED
+  PRODUCT_FEEDBACK
+  USES_COMPETITOR
+  DOES_NOT_WANT_TO_TALK
+}
+
+// One dial batch = up to 3 prospects dialed simultaneously from one click of
+// "Iniciar discagem" (2026-08-25, v1 fixed at 3 lines — not yet configurable
+// per tenant). winnerCallSid is the compare-and-swap field that decides the
+// AMD race: whichever leg's async AMD callback first UPDATEs this row from
+// null wins and gets bridged to the BDR's conference; every other leg that
+// tries after that finds it already set and hangs up instead.
+model DialBatch {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cadenceId String
+  cadence   Cadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Twilio Conference room name (e.g. "batch-<id>") — the BDR's browser
+  /// leg and whichever outbound leg wins the race both join this room.
+  conferenceName String @unique
+
+  /// Set via compare-and-swap once a leg's AMD callback confirms a human —
+  /// null means no winner yet (or every leg lost: machine/no-answer/busy).
+  winnerCallSid String?
+
+  createdAt DateTime @default(now())
+
+  calls Call[]
+
+  @@index([tenantId])
+  @@index([cadenceId])
+  @@map("dial_batches")
+}
+
+enum ParallelLegStatus {
+  RINGING
+  MACHINE_DETECTED
+  NO_ANSWER
+  BUSY
+  FAILED
+  CONNECTED
+  ABANDONED
+}
+
+model Call {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Nullable — a call isn't always tied to a known prospect yet (e.g. a
+  /// Twilio credential/caller-ID verification call placed via /calls/test).
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  /// Denormalized — which rep placed the call, for Call Check's "User name"
+  /// column. Set at creation time; the Activity trail also records userId,
+  /// but joining through Activity for a simple list column isn't worth it.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Null for calls placed outside Twilio (e.g. manual log) — set once the
+  /// real dialer module wires this up via the Twilio Calls API.
+  twilioCallSid String? @unique
+
+  toNumber   String
+  fromNumber String
+
+  outcome CallOutcome?
+
+  /// Set only when outcome = NOT_INTERESTED.
+  notInterestedReason NotInterestedReason?
+
+  durationSeconds Int?
+
+  /// True only when durationSeconds >= 30 — the "real conversation" rule.
+  /// Computed server-side on call completion, never settable by the outcome
+  /// picker in the UI (a BDR can't override it by picking a different
+  /// outcome button).
+  isConversation Boolean @default(false)
+
+  connectedAt DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  /// Twilio's recording URL, set once <Dial record="..."> finishes and the
+  /// recordingStatusCallback webhook fires. Base URL only (no .mp3/.wav
+  /// suffix) — Twilio recordings require Twilio Basic Auth to download, so
+  /// this is never handed to the frontend directly.
+  recordingUrl String?
+
+  /// Array of { speaker: number; text: string; start: number; end: number }
+  /// utterances from Deepgram diarization, set once transcription
+  /// completes. Null until then — Call Check's AI Sales Coach feedback
+  /// (>= 1 min calls) reads this.
+  transcript Json?
+
+  /// { context: string; positives: string[]; improvements: string[] } —
+  /// generated once transcript is present AND durationSeconds >= 60 (Call
+  /// Check's AI Sales Coach). Calls under a minute never get one, per the
+  /// Dial spec — null forever for those, not just "not yet".
+  aiFeedback Json?
+
+  /// Set only for a leg originated as part of a parallel dial batch — null
+  /// for every call placed the old single-line way.
+  dialBatchId String?
+  dialBatch   DialBatch? @relation(fields: [dialBatchId], references: [id], onDelete: SetNull)
+
+  /// Live status of one leg within a dial batch — null for non-parallel
+  /// calls. Drives the Dialer's "N linhas discando" queue rows.
+  parallelLegStatus ParallelLegStatus?
+
+  /// True for a losing leg the system hung up because another leg in the
+  /// same batch already connected to a human first — never a BDR decision,
+  /// never gets an outcome. Distinct from a normal outcome because it isn't
+  /// a classification of a conversation; it's a system event. Counted
+  /// separately for the abandonment-rate figure (Dial spec, 2026-08-25 —
+  /// measured only in v1, no automatic cutoff yet).
+  abandonedByParallelDial Boolean @default(false)
+
+  tasks Task[]
+
+  @@index([tenantId])
+  @@index([personId])
+  @@index([userId])
+  @@index([dialBatchId])
+  @@map("calls")
+}
+
+enum SignalCategory {
+  PERSON
+  COMPANY
+  ENGAGEMENT
+  AI_INTERPRETATION
+}
+
+model Signal {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  category SignalCategory
+
+  /// e.g. "job_change", "open_roles", "call_connected", "pain_detected" —
+  /// kept as a string rather than a second enum since the Signal Engine's
+  /// subtypes are expected to grow independently of the four categories.
+  subtype String
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  summary String
+
+  /// URL for web-sourced signals, or a description like "Interactions do
+  /// workspace Comitai" for internally-generated ones — every signal must
+  /// be traceable back to where it came from.
+  source String?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([accountId])
+  @@index([personId])
+  @@map("signals")
+}
+
+enum ActivityType {
+  ACCOUNT_CREATED
+  PERSON_CREATED
+  CALL_PLACED
+  OUTCOME_RECORDED
+  CADENCE_STEP_ADVANCED
+  FIELD_EDITED
+  EMAIL_SENT
+  WHATSAPP_MESSAGE_SENT
+  LINKEDIN_ACTION
+}
+
+/// Generic audit trail: every action taken on an Account/Person — call,
+/// outcome, cadence move, field edit — must be written here before any
+/// visual state changes on the frontend. Mirrors the login_events pattern
+/// above, generalized to domain actions instead of auth events.
+model Activity {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  type ActivityType
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([accountId])
+  @@index([personId])
+  @@index([userId])
+  @@map("activities")
+}
+
+enum TaskChannel {
+  CALL
+  WHATSAPP
+  EMAIL
+  LINKEDIN
+}
+
+/// Created automatically when a Dialer call is classified "Solicitou
+/// retorno" — surfaces on the Overview page's task list, per the Dial spec.
+model Task {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// The call that generated this task, when there was one — kept even if
+  /// the call is later deleted (shouldn't happen, but the task shouldn't
+  /// vanish with it).
+  sourceCallId String?
+  sourceCall   Call?   @relation(fields: [sourceCallId], references: [id], onDelete: SetNull)
+
+  channel TaskChannel
+  dueAt   DateTime
+
+  /// "Resumo da task via IA" — filled asynchronously after creation, null
+  /// until the summary is generated.
+  summary String?
+
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([personId])
+  @@index([accountId])
+  @@map("tasks")
+}
+
+/// Global "não discar mais para esse número" list — deliberately NOT scoped
+/// by tenant, unlike every other table in this schema. This is a DNC/
+/// compliance control, not commercial data: a number marked here is
+/// suppressed for every tenant, not just the one that marked it. See the
+/// Dial spec (founder, 2026-08-24) for why this is an intentional exception
+/// to the multi-tenant isolation rule — don't "fix" this in a future
+/// isolation pass without re-reading that decision.
+model SuppressedNumber {
+  id          String @id @default(uuid())
+  phoneNumber String @unique
+
+  reason String?
+
+  /// Informational only, not a relation — which tenant first suppressed
+  /// this number doesn't gate anything, since the suppression is global.
+  suppressedByTenantId String?
+
+  createdAt DateTime @default(now())
+
+  @@map("suppressed_numbers")
+}
+
+/// Cached AI research for an Account (company overview, role importance/
+/// indicators, call script, objections, battlecards) — generated once on
+/// first connected call and reused on every subsequent connection/callback
+/// for that Account, per the Dial spec's "pesquisa profunda só pós-conexão,
+/// nunca regenerada à toa" rule. Cached per (account, clientCompany), not
+/// per account alone — the same prospect account can be worked by cadences
+/// selling different client companies' products, and each needs its own
+/// framing (2026-08-25). clientCompanyId is nullable only so pre-existing
+/// rows from before this feature don't need a backfill guess; new rows
+/// always carry one, since the Dialer no longer starts a cadence without
+/// a client company set.
+model AccountResearch {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  clientCompanyId String?
+  clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
+
+  companyOverview String
+  roleImportance  String
+  roleIndicators  String
+  callScript      String
+
+  /// Array of { objection: string; response: string }.
+  objections Json
+
+  /// Array of up to 3 { competitor: string; theirStrength: string; ourEdge: string }.
+  battlecards Json
+
+  generatedAt DateTime @default(now())
+
+  @@unique([accountId, clientCompanyId])
+  @@index([tenantId])
+  @@index([clientCompanyId])
+  @@map("account_research")
+}
+
+enum GoalPeriod {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+}
+
+/// One row per (user, period granularity) — a standing target the BDR
+/// keeps editing in place, not a new row every week/month. `period` exists
+/// from this first migration even though Workspace's UI only exposes
+/// WEEKLY today, per the Dial spec's explicit instruction not to have to
+/// remodel this later. Workspace (seção 8) writes here; KPI Targets
+/// (seção 6) only reads.
+model Goal {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  period GoalPeriod
+
+  callsTarget               Int @default(0)
+  conversationsTarget       Int @default(0)
+  dialingMinutesTarget      Int @default(0)
+  conversationMinutesTarget Int @default(0)
+  connectedCallsTarget      Int @default(0)
+
+  /// Who last wrote this goal, in role terms — enforces "gestor tem
+  /// prioridade em caso de conflito" (Dial spec, seção 8): once an ADMIN
+  /// sets a goal, the owning BDR can no longer silently overwrite it via
+  /// self-service; only another ADMIN write can change it further. This
+  /// specific enforcement mechanic isn't spelled out in the spec beyond
+  /// that one sentence — implemented this way as the most direct reading
+  /// of "gestor tem prioridade".
+  setByRole Role @default(MEMBER)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, period])
+  @@index([tenantId])
+  @@map("goals")
 }

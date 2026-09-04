@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
@@ -38,14 +39,33 @@ export class AuthService {
       throw new ConflictException('Unable to register with these details.');
     }
 
-    const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+    // No tenant signup/invite flow exists yet — every new user joins the
+    // one bootstrap tenant every environment is seeded with (see the
+    // add_multi_tenancy migration). Revisit once a second tenant is real.
+    const tenant = await this.prisma.tenant.findFirst();
+    if (!tenant) {
+      throw new InternalServerErrorException(
+        'No tenant is configured for this environment.',
+      );
+    }
+
+    const passwordHash = await argon2.hash(dto.password, {
+      type: argon2.argon2id,
+    });
     const user = await this.users.create({
       email: dto.email,
       name: dto.name,
       passwordHash,
+      tenantId: tenant.id,
     });
 
-    return this.issueSession(user.id, user.email, user.role, meta);
+    return this.issueSession(
+      user.id,
+      user.email,
+      user.role,
+      user.tenantId,
+      meta,
+    );
   }
 
   async login(dto: LoginDto, meta: RequestMeta): Promise<AuthResult> {
@@ -54,7 +74,8 @@ export class AuthService {
     // Always hash something, even for an unknown email, so response timing
     // doesn't reveal whether the account exists (mitigates user enumeration
     // via timing side-channel).
-    const passwordHash = user?.passwordHash ?? (await argon2.hash('placeholder'));
+    const passwordHash =
+      user?.passwordHash ?? (await argon2.hash('placeholder'));
 
     if (user?.lockedUntil && user.lockedUntil > new Date()) {
       await this.logEvent('LOGIN_FAILURE', meta, {
@@ -67,7 +88,9 @@ export class AuthService {
       );
     }
 
-    const passwordValid = await argon2.verify(passwordHash, dto.password).catch(() => false);
+    const passwordValid = await argon2
+      .verify(passwordHash, dto.password)
+      .catch(() => false);
 
     if (!user || !passwordValid) {
       if (user) {
@@ -87,17 +110,33 @@ export class AuthService {
     }
 
     await this.users.resetFailedLogins(user.id);
-    await this.logEvent('LOGIN_SUCCESS', meta, { email: dto.email, userId: user.id });
+    await this.logEvent('LOGIN_SUCCESS', meta, {
+      email: dto.email,
+      userId: user.id,
+    });
 
-    return this.issueSession(user.id, user.email, user.role, meta);
+    return this.issueSession(
+      user.id,
+      user.email,
+      user.role,
+      user.tenantId,
+      meta,
+    );
   }
 
-  async refresh(rawRefreshToken: string, meta: RequestMeta): Promise<AuthResult> {
+  async refresh(
+    rawRefreshToken: string,
+    meta: RequestMeta,
+  ): Promise<AuthResult> {
     const result = await this.tokens.rotateRefreshToken(rawRefreshToken, meta);
 
     if (result.status === 'reused') {
-      await this.logEvent('TOKEN_REUSE_DETECTED', meta, { userId: result.userId });
-      throw new UnauthorizedException('Session invalidated. Please log in again.');
+      await this.logEvent('TOKEN_REUSE_DETECTED', meta, {
+        userId: result.userId,
+      });
+      throw new UnauthorizedException(
+        'Session invalidated. Please log in again.',
+      );
     }
 
     if (result.status === 'invalid') {
@@ -111,16 +150,26 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      tenantId: user.tenantId,
     });
 
     return {
       accessToken,
       refreshToken: result.newRawToken,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
     };
   }
 
-  async logout(rawRefreshToken: string, userId: string, meta: RequestMeta): Promise<void> {
+  async logout(
+    rawRefreshToken: string,
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<void> {
     await this.tokens.revokeRefreshToken(rawRefreshToken);
     await this.logEvent('LOGOUT', meta, { userId });
   }
@@ -134,9 +183,15 @@ export class AuthService {
     userId: string,
     email: string,
     role: string,
+    tenantId: string,
     meta: RequestMeta,
   ): Promise<AuthResult> {
-    const accessToken = this.tokens.signAccessToken({ sub: userId, email, role });
+    const accessToken = this.tokens.signAccessToken({
+      sub: userId,
+      email,
+      role,
+      tenantId,
+    });
     const refreshToken = await this.tokens.issueRefreshToken(userId, meta);
     const user = await this.users.findById(userId);
 

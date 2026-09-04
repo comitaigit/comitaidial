@@ -75,9 +75,51 @@ class EnvironmentVariables {
   @IsNotEmpty()
   TWILIO_AUTH_TOKEN!: string;
 
+  // The caller ID used as `From` on outbound calls — either a Twilio-owned
+  // number or a Verified Caller ID under the account. Must be in E.164
+  // format (e.g. +5511958028794).
   @IsString()
   @IsNotEmpty()
   TWILIO_PHONE_NUMBER!: string;
+
+  // API Key (not the main Auth Token) used to sign browser Voice Access
+  // Tokens — Twilio's jwt.AccessToken requires an API Key SID/Secret pair,
+  // not the account's main credentials. Create one in Console → Account →
+  // API keys & tokens.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SECRET!: string;
+
+  // The TwiML App whose Voice URL points at this backend's
+  // /v1/calls/voice webhook — see calls.controller.ts.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_TWIML_APP_SID!: string;
+
+  // This API's own public base URL (e.g. https://dev.api.comitai.app), used
+  // to reconstruct the exact URL Twilio signed when validating the /calls/voice
+  // webhook's X-Twilio-Signature — reconstructing it from request headers
+  // instead would depend on trusting proxy headers, which is fragile behind
+  // Nginx and would let a forged request bypass signature validation.
+  @IsString()
+  @IsNotEmpty()
+  PUBLIC_API_URL!: string;
+
+  // Used to generate the Overview page's AI insight pill — see
+  // src/overview/overview.service.ts. Console → Settings → API Keys.
+  @IsString()
+  @IsNotEmpty()
+  ANTHROPIC_API_KEY!: string;
+
+  // Transcribes recorded calls for Call Check — console.deepgram.com →
+  // API Keys. See src/transcription/transcription.service.ts.
+  @IsString()
+  @IsNotEmpty()
+  DEEPGRAM_API_KEY!: string;
 }
 
 /**
