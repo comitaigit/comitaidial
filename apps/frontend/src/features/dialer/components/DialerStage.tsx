@@ -2,7 +2,7 @@
 
 import { CadencePicker } from "@/features/dialer/components/CadencePicker";
 import { SessionBar } from "@/features/dialer/components/SessionBar";
-import { DialCard } from "@/features/dialer/components/DialCard";
+import { ParallelDialCards } from "@/features/dialer/components/ParallelDialCards";
 import { ContactQueue } from "@/features/dialer/components/ContactQueue";
 import { ConnectedStatusBar } from "@/features/dialer/components/ConnectedStatusBar";
 import { CallHero } from "@/features/dialer/components/CallHero";
@@ -18,14 +18,18 @@ export function DialerStage() {
     cadencePicker,
     queue,
     research,
-    currentPerson,
+    winner,
+    legs,
+    legStatuses,
+    batchPhase,
     awaitingOutcome,
     pendingResultKind,
     retryCountdown,
-    startCall,
+    startBatch,
     retryNow,
     skipCurrent,
     hangup,
+    cancelCurrentBatch,
     openOutcomeModal,
     ringElapsedSeconds,
     callElapsedSeconds,
@@ -41,25 +45,25 @@ export function DialerStage() {
   const progressPercent =
     sessionCallsMade > 0 ? Math.min(Math.round((sessionCallsMade / 80) * 100), 100) : 0;
 
-  const isConnected = softphone.status === "in-call";
-  const isDialing = softphone.status === "connecting";
   const isReady = softphone.status === "ready";
+  const isDialing = batchPhase === "dialing";
+  const isConnected = batchPhase === "connected" && !!winner;
 
   const canCall =
-    isReady && !!currentPerson && !awaitingOutcome && !cadencePicker.isIncomplete;
-  const canSkip = isReady && !!currentPerson && !awaitingOutcome;
+    isReady && !!queue.currentPerson && batchPhase === "idle" && !cadencePicker.isIncomplete;
+  const canSkip = isReady && !!queue.currentPerson && batchPhase === "idle";
 
-  // Estado 2: call is active — split-panel layout
-  if (isConnected && currentPerson) {
+  // Estado 2: a real prospect answered — split-panel layout
+  if (isConnected && winner) {
     return (
       <div className="-mx-4 sm:-mx-5.5 -mt-4 sm:-mt-5.5 flex min-h-[600px]">
         {/* Left panel — 460px fixed */}
         <div className="flex w-[460px] shrink-0 flex-col border-r border-[#F1F5F9]">
-          <ConnectedStatusBar contactName={currentPerson.name} />
+          <ConnectedStatusBar contactName={winner.name} />
           <CallHero
-            name={currentPerson.name}
-            title={currentPerson.role ?? ""}
-            company={currentPerson.accountName}
+            name={winner.name}
+            title={winner.role ?? ""}
+            company={winner.accountName}
             elapsedSeconds={callElapsedSeconds}
           />
           <div className="h-px bg-[#F1F5F9]" />
@@ -77,9 +81,9 @@ export function DialerStage() {
             error={research.error}
             onRetry={retryResearch}
             contact={{
-              name: currentPerson.name,
-              company: currentPerson.accountName,
-              role: currentPerson.role,
+              name: winner.name,
+              company: winner.accountName,
+              role: winner.role,
             }}
           />
         </div>
@@ -87,7 +91,7 @@ export function DialerStage() {
     );
   }
 
-  // Estado 1: ready / connecting / idle
+  // Estado 1: ready / dialing / idle
   return (
     <div className="-mx-4 sm:-mx-5.5 -mt-4 sm:-mt-5.5 flex flex-col bg-white">
       <SessionBar
@@ -122,35 +126,32 @@ export function DialerStage() {
         {/* Heading */}
         <div>
           <h2 className="text-[18px] font-[600] tracking-[-0.3px] text-[#0F172A]">
-            {isDialing ? "Discando agora · 1 linha ativa" : "Aguardando · Iniciar discagem"}
+            {isDialing
+              ? `Discando agora · ${legs.length} ${legs.length === 1 ? "linha ativa" : "linhas ativas"}`
+              : "Aguardando · Iniciar discagem"}
           </h2>
-          {!isDialing && currentPerson && (
+          {!isDialing && queue.currentPerson && (
             <p className="mt-0.5 text-[13px] text-[#94A3B8]">
-              Próximo: {currentPerson.name} · {currentPerson.accountName}
+              Próximo: {queue.currentPerson.name} · {queue.currentPerson.accountName}
             </p>
           )}
         </div>
 
-        {/* Active dial card when connecting */}
-        {isDialing && currentPerson ? (
-          <div className="max-w-[300px]">
-            <DialCard
-              contactName={currentPerson.name}
-              title={currentPerson.role ?? ""}
-              company={currentPerson.accountName}
-              phone={currentPerson.phone}
-              linkedinUrl={currentPerson.linkedinUrl}
-              callAttemptsCount={currentPerson.callAttemptsCount}
-              lastOutcome={currentPerson.lastOutcome}
+        {/* Up to 3 parallel dial cards while a batch is in flight */}
+        {isDialing ? (
+          <div className="max-w-[720px]">
+            <ParallelDialCards
+              legs={legs}
+              legStatuses={legStatuses}
               secondsRinging={ringElapsedSeconds}
-              onSkip={skipCurrent}
+              onCancel={cancelCurrentBatch}
             />
           </div>
         ) : (
           /* CTA buttons when ready */
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={startCall}
+              onClick={startBatch}
               disabled={!canCall}
               className="rounded-[8px] bg-[#0F172A] px-5 py-2.5 text-[14px] font-[700] text-white transition-colors hover:bg-[#1E293B] disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -176,11 +177,11 @@ export function DialerStage() {
         )}
 
         {/* Outcome pending banner */}
-        {awaitingOutcome && currentPerson && (
+        {awaitingOutcome && winner && (
           <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3">
             <p className="text-[13px] text-[#15803D]">
               Outcome pendente para{" "}
-              <span className="font-[600]">{currentPerson.name}</span> — classifique antes de
+              <span className="font-[600]">{winner.name}</span> — classifique antes de
               avançar.
             </p>
             <button
@@ -205,7 +206,7 @@ export function DialerStage() {
 
         {/* Queue */}
         <ContactQueue
-          contacts={isDialing ? queue.queue.slice(1) : queue.queue}
+          contacts={isDialing ? queue.queue.slice(legs.length) : queue.queue}
           onRemove={(personId) => queue.removeByPersonIds([personId])}
         />
       </div>
