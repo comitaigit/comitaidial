@@ -38,6 +38,7 @@ export function DialerStage() {
     selectedOutcome,
     selectOutcome,
     retryResearch,
+    suggestedScript,
   } = useDialerStage();
 
   const connectionRate =
@@ -85,6 +86,7 @@ export function DialerStage() {
               company: winner.accountName,
               role: winner.role,
             }}
+            suggestedScript={suggestedScript}
           />
         </div>
       </div>

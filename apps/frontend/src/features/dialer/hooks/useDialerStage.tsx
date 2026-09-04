@@ -43,8 +43,13 @@ const RETRY_ELIGIBLE_LEG_STATUSES = new Set<ParallelLegStatus>([
 
 const BATCH_POLL_INTERVAL_MS = 1500;
 
+function firstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] ?? fullName;
+}
+
 export function useDialerStage() {
   const accessToken = useSessionStore((s) => s.accessToken);
+  const user = useSessionStore((s) => s.user);
   const cadencePicker = useCadencePicker();
   const softphone = useSoftphone();
   const queue = useDialerQueue(cadencePicker.selectedCadenceId);
@@ -345,6 +350,16 @@ export function useDialerStage() {
     void research.load(winner.accountId, winner.role, winner.clientCompanyId);
   }, [winner, research]);
 
+  // Fixed opener script — filled in with real data available the instant a
+  // call connects, so it doesn't wait on the AI research call (and isn't
+  // cached server-side, which would leak one BDR's name into another BDR's
+  // call on the same account).
+  const clientCompanyName = cadencePicker.selectedCadence?.clientCompany?.name ?? null;
+  const suggestedScript =
+    winner && user && clientCompanyName
+      ? `${firstName(winner.name)}, aqui é ${firstName(user.name)} da ${clientCompanyName}. Em quarenta e cinco segundos eu posso explicar por que liguei e você pode me dizer se faz sentido ter uma discussão mais aprofundada. Tudo bem?`
+      : null;
+
   return {
     softphone,
     cadencePicker,
@@ -367,6 +382,7 @@ export function useDialerStage() {
     finishAttempt,
     openOutcomeModal,
     retryResearch,
+    suggestedScript,
     ringElapsedSeconds,
     callElapsedSeconds,
     sessionCallsMade,
