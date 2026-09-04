@@ -314,7 +314,6 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
   "companyOverview": "1-2 frases sobre o que a empresa provavelmente faz, com base no nome/segmento.",
   "roleImportance": "1-2 frases sobre por que esse cargo importa para a empresa.",
   "roleIndicators": "1-2 frases sobre indicadores típicos de um profissional nesse cargo e por que o produto sendo vendido importa para ele.",
-  "callScript": "um roteiro curto de abertura de ligação (3-4 frases), em português, tom consultivo, não robótico.",
   "objections": [{"objection": "objeção comum em português", "response": "como responder"}],
   "battlecards": [{"competitor": "nome plausível de concorrente de ${clientCompany.mainProduct}", "theirStrength": "o que eles fazem bem", "ourEdge": "diferencial de ${clientCompany.name}"}]
 }
@@ -344,7 +343,13 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
         typeof json.roleIndicators === 'string'
           ? json.roleIndicators
           : 'Não foi possível gerar esta seção.',
-      callScript: typeof json.callScript === 'string' ? json.callScript : '',
+      // The opening script is now a fixed template rendered client-side
+      // (lead name + logged-in BDR name + client company, filled in per
+      // call) instead of LLM-authored prose — this cached row is shared
+      // across every BDR who calls this account for this client company,
+      // so baking one BDR's name into it here would show the wrong caller
+      // to the next one. See AIPanel.tsx / useDialerStage.tsx.
+      callScript: '',
       objections: Array.isArray(json.objections) ? json.objections : [],
       battlecards: Array.isArray(json.battlecards) ? json.battlecards : [],
     };

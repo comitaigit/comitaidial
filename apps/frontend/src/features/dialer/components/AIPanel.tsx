@@ -6,12 +6,14 @@ export function AIPanel({
   error,
   onRetry,
   contact,
+  suggestedScript,
 }: {
   research: AccountResearch | null;
   status: "idle" | "loading" | "loaded" | "error";
   error: string | null;
   onRetry: () => void;
   contact: { name: string; company: string; role: string | null } | null;
+  suggestedScript: string | null;
 }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -36,6 +38,25 @@ export function AIPanel({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-7 py-5">
+        {/* Script de abertura — texto fixo, disponível assim que a chamada
+            conecta, sem esperar a pesquisa de IA carregar */}
+        {suggestedScript && (
+          <>
+            <section className="mb-5">
+              <p className="mb-2 text-[10px] font-[700] uppercase tracking-[1px] text-[#CBD5E1]">
+                Script de abertura
+              </p>
+              <div className="flex gap-2">
+                <span className="mt-0.5 shrink-0 rounded-[4px] bg-[#EFF6FF] px-1.5 py-0.5 text-[10px] font-[700] text-[#2563EB]">
+                  Script
+                </span>
+                <p className="text-[12px] leading-[1.5] text-[#0F172A]">{suggestedScript}</p>
+              </div>
+            </section>
+            <div className="mb-5 h-px bg-[#F1F5F9]" />
+          </>
+        )}
+
         {status === "idle" && (
           <p className="text-[13px] leading-[1.6] text-[#94A3B8]">
             O contexto de IA aparece aqui assim que a chamada conectar.
@@ -140,26 +161,6 @@ export function AIPanel({
                         </div>
                       </div>
                     )}
-                  </div>
-                </section>
-              </>
-            )}
-
-            {/* Script sugerido */}
-            {research.callScript && (
-              <>
-                <div className="h-px bg-[#F1F5F9]" />
-                <section>
-                  <p className="mb-2 text-[10px] font-[700] uppercase tracking-[1px] text-[#CBD5E1]">
-                    Script sugerido
-                  </p>
-                  <div className="flex gap-2">
-                    <span className="mt-0.5 shrink-0 rounded-[4px] bg-[#EFF6FF] px-1.5 py-0.5 text-[10px] font-[700] text-[#2563EB]">
-                      Script
-                    </span>
-                    <p className="text-[12px] leading-[1.5] text-[#0F172A]">
-                      {research.callScript}
-                    </p>
                   </div>
                 </section>
               </>
