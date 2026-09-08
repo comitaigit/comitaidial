@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { DialerService } from './dialer.service';
 import { ReorderQueueDto } from './dto/reorder-queue.dto';
+import { RemoveFromQueueDto } from './dto/remove-from-queue.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
@@ -33,6 +34,18 @@ export class DialerController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.dialer.reorderQueue(
+      user.tenantId,
+      dto.cadenceId,
+      dto.personIds,
+    );
+  }
+
+  @Patch('queue/remove')
+  removeFromQueue(
+    @Body() dto: RemoveFromQueueDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dialer.removeFromQueue(
       user.tenantId,
       dto.cadenceId,
       dto.personIds,

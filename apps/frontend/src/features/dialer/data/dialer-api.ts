@@ -194,6 +194,20 @@ export function reorderQueue(
   });
 }
 
+// Persists a "Remover" from the queue — deactivates these people's
+// enrollment in this cadence so they don't come back on the next queue
+// fetch (e.g. starting a new discagem paralela batch).
+export function removeFromQueue(
+  cadenceId: string,
+  personIds: string[],
+  accessToken: string,
+): Promise<void> {
+  return request<void>("/dialer/queue/remove", accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ cadenceId, personIds }),
+  });
+}
+
 export function getResearch(
   accountId: string,
   personRole: string | null,

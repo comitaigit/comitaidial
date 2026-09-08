@@ -223,6 +223,24 @@ export class DialerService {
     );
   }
 
+  // "Remover" in the Dialer queue — the BDR is dropping this person from
+  // this cadence's run entirely (not just skipping them for now), so the
+  // enrollment is deactivated the same way a final call outcome deactivates
+  // it (see CallsService's outcome transaction). Without this the row was
+  // only ever hidden from local React state: the next getQueue() call (e.g.
+  // starting a new discagem paralela batch) re-reads active enrollments from
+  // the DB and the "removed" person comes right back.
+  async removeFromQueue(
+    tenantId: string,
+    cadenceId: string,
+    personIds: string[],
+  ): Promise<void> {
+    await this.prisma.cadenceEnrollment.updateMany({
+      where: { tenantId, cadenceId, personId: { in: personIds }, active: true },
+      data: { active: false },
+    });
+  }
+
   // Deep research for the account, generated once per (account, client
   // company) and cached — a callback reconnect reuses the same card instead
   // of re-billing the LLM, per the Dial spec's pré-call leve / pós-conexão

@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSessionStore } from "@/features/shell/stores/session-store";
 import { useToast } from "@/features/shell/hooks/useToast";
-import { getQueue, reorderQueue, type QueueItem } from "@/features/dialer/data/dialer-api";
+import {
+  getQueue,
+  reorderQueue,
+  removeFromQueue,
+  type QueueItem,
+} from "@/features/dialer/data/dialer-api";
 
 // The queue is always worked from the front — queue[0] is "current". No
 // separate index: removing/requeuing the front row is enough to advance,
@@ -48,10 +53,25 @@ export function useDialerQueue(cadenceId: string | null) {
   // removeByPersonIds directly) and the winner once its outcome is known
   // (via removeByPersonIds for a final/invalid outcome, or requeuePersonId
   // for a retry-eligible one).
-  const removeByPersonIds = useCallback((personIds: string[]) => {
-    const idSet = new Set(personIds);
-    setQueue((prev) => prev.filter((item) => !idSet.has(item.personId)));
-  }, []);
+  //
+  // Also persists the removal by deactivating the enrollment — a purely
+  // local filter left the person in the fila's server-side source of truth,
+  // so the next getQueue() (e.g. starting a new batch) pulled them right
+  // back in. A failed persist just gets a toast; the local removal stands
+  // and worst case they reappear on the next full queue reload.
+  const removeByPersonIds = useCallback(
+    (personIds: string[]) => {
+      const idSet = new Set(personIds);
+      setQueue((prev) => prev.filter((item) => !idSet.has(item.personId)));
+
+      if (cadenceId && accessToken) {
+        removeFromQueue(cadenceId, personIds, accessToken).catch(() => {
+          toast("Não foi possível remover o contato da fila.");
+        });
+      }
+    },
+    [cadenceId, accessToken, toast],
+  );
 
   // Retry-eligible outcome (não atendeu / caixa postal / ocupado) — send it
   // to the back of the queue instead of dropping it.
