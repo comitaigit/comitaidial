@@ -9,7 +9,13 @@ import {
   StepExecutionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
+import { GmailService } from '../gmail/gmail.service';
 import { RecordProspectEventDto } from './dto/record-prospect-event.dto';
+
+// An email send is retried this many times (transient Gmail/network
+// errors) before the Action is given up on as FAILED.
+const MAX_SEND_ATTEMPTS = 3;
 
 /// CadenceStepType values the engine can turn into a dispatchable Action.
 /// Everything else (CALL, MANUAL_EMAIL, MANUAL_SMS, WHATSAPP_MESSAGE,
@@ -33,15 +39,18 @@ interface TriggerConfig {
 }
 
 interface ActionConfig {
-  /// True if the payload should be authored by AI at dispatch time (item 2
-  /// of the build order — the unified AiService — plugs in here). Until
-  /// that lands, such Actions are created with a `pending: true` payload
-  /// placeholder so the engine's flow control can be exercised end to end
-  /// without faking AI output.
+  /// True if the payload should be authored by AI, using `prompt` as the
+  /// per-step instruction — see createAction/generateEmailContent.
   generateWithAI?: boolean;
   prompt?: string;
   /// Static payload for non-AI actions (e.g. a fixed connection note).
   static?: Record<string, unknown>;
+}
+
+interface EmailPayload {
+  subject: string;
+  body: string;
+  [key: string]: unknown;
 }
 
 /// The Play Engine: a poll loop that turns a Cadence's steps from a
@@ -54,7 +63,11 @@ interface ActionConfig {
 export class PlayEngineService {
   private readonly logger = new Logger(PlayEngineService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ai: AiService,
+    private readonly gmail: GmailService,
+  ) {}
 
   /// Entry point for anything outside the engine ("a lead's email bounced",
   /// "the LinkedIn extension saw an accepted invite") to tell the Play
@@ -86,6 +99,7 @@ export class PlayEngineService {
       await this.promoteScheduled();
       await this.promoteWaitingEvents();
       await this.executeReady();
+      await this.dispatchEmailActions();
     } catch (err) {
       // A poll loop must never die from one bad row — log and let the next
       // tick retry whatever didn't commit.
@@ -212,7 +226,13 @@ export class PlayEngineService {
         cadenceStep: true,
         enrollment: {
           include: {
-            cadence: { include: { steps: { orderBy: { order: 'asc' } } } },
+            person: { include: { account: true } },
+            cadence: {
+              include: {
+                steps: { orderBy: { order: 'asc' } },
+                clientCompany: true,
+              },
+            },
           },
         },
       },
@@ -252,24 +272,29 @@ export class PlayEngineService {
 
   private async createAction(
     execution: Prisma.StepExecutionGetPayload<{
-      include: { cadenceStep: true; enrollment: true };
+      include: {
+        cadenceStep: true;
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
     }>,
     type: ActionType,
   ) {
     const config =
       (execution.cadenceStep.actionConfig as ActionConfig | null) ?? {};
-    const payload: Record<string, unknown> = config.generateWithAI
-      ? { pending: true, prompt: config.prompt ?? null }
-      : (config.static ?? {});
 
-    const cadence = execution.enrollment
-      ? await this.prisma.cadence.findUniqueOrThrow({
-          where: { id: execution.cadenceStep.cadenceId },
-        })
-      : null;
+    const payload: Record<string, unknown> =
+      config.generateWithAI && type === ActionType.SEND_EMAIL
+        ? await this.generateEmailContent(execution, config.prompt)
+        : (config.static ?? {});
 
     const requiresApproval =
-      !!config.generateWithAI && cadence?.approvalMode === ApprovalMode.MANUAL;
+      !!config.generateWithAI &&
+      execution.enrollment.cadence.approvalMode === ApprovalMode.MANUAL;
 
     return this.prisma.action.create({
       data: {
@@ -284,6 +309,121 @@ export class PlayEngineService {
         idempotencyKey: execution.id,
       },
     });
+  }
+
+  // Authors the actual subject/body at Action-creation time (not at
+  // dispatch) so a BDR reviewing a PENDING_APPROVAL action sees real
+  // content, not a placeholder — see the ApprovalMode gate right above.
+  private async generateEmailContent(
+    execution: Prisma.StepExecutionGetPayload<{
+      include: {
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
+    }>,
+    stepInstruction: string | undefined,
+  ): Promise<EmailPayload> {
+    const person = execution.enrollment.person;
+    const account = person.account;
+    const clientCompany = execution.enrollment.cadence.clientCompany;
+    const productContext = clientCompany
+      ? `${clientCompany.name}: ${clientCompany.mainProduct}.${
+          clientCompany.positioning ? ` ${clientCompany.positioning}` : ''
+        }`
+      : 'Produto não configurado — escreva de forma genérica.';
+
+    const prompt = `Você é um BDR de vendas B2B escrevendo um e-mail de prospecção outbound em português.
+
+Produto sendo vendido: ${productContext}
+Destinatário: ${person.name}${person.role ? `, cargo "${person.role}"` : ''}, na empresa "${account.name}".
+Instrução para este e-mail específico: ${stepInstruction ?? 'Escreva um e-mail de abertura de prospecção, direto e curto, terminando com uma pergunta de baixo esforço para o destinatário responder.'}
+
+Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON), exatamente neste formato:
+{"subject": "assunto curto, sem clickbait", "body": "corpo do e-mail em texto simples, sem markdown, no máximo 120 palavras"}`;
+
+    const json = await this.ai.completeJson({ prompt, maxTokens: 600 });
+    return {
+      subject:
+        typeof json.subject === 'string' ? json.subject : '(sem assunto)',
+      body:
+        typeof json.body === 'string'
+          ? json.body
+          : 'Não foi possível gerar o conteúdo deste e-mail.',
+    };
+  }
+
+  // SEND_EMAIL Actions that cleared approval (or never needed it) get
+  // dispatched here. Actions of other types are left alone until a later
+  // build-order item adds their own dispatcher (LinkedIn connect/message).
+  private async dispatchEmailActions() {
+    const pending = await this.prisma.action.findMany({
+      where: {
+        status: ActionStatus.PENDING,
+        type: ActionType.SEND_EMAIL,
+        attempts: { lt: MAX_SEND_ATTEMPTS },
+      },
+      include: {
+        person: true,
+        stepExecution: { include: { enrollment: true } },
+      },
+    });
+
+    for (const action of pending) {
+      const to = action.person.email;
+      const enrolledById = action.stepExecution?.enrollment.enrolledById;
+      const payload = action.payload as Partial<EmailPayload> | null;
+
+      if (!to || !enrolledById || !payload?.subject || !payload.body) {
+        // Not transient — no email on file, or no BDR to send as, or no
+        // content. Retrying won't fix any of these.
+        await this.prisma.action.update({
+          where: { id: action.id },
+          data: {
+            status: ActionStatus.FAILED,
+            attempts: { increment: 1 },
+            executedAt: new Date(),
+          },
+        });
+        continue;
+      }
+
+      try {
+        await this.gmail.sendEmail(
+          enrolledById,
+          to,
+          payload.subject,
+          payload.body,
+        );
+        await this.prisma.action.update({
+          where: { id: action.id },
+          data: {
+            status: ActionStatus.SENT,
+            executedAt: new Date(),
+            attempts: { increment: 1 },
+          },
+        });
+      } catch (err) {
+        const attempts = action.attempts + 1;
+        this.logger.error(
+          `Email dispatch failed for action ${action.id} (attempt ${attempts}/${MAX_SEND_ATTEMPTS})`,
+          err as Error,
+        );
+        await this.prisma.action.update({
+          where: { id: action.id },
+          data: {
+            attempts: { increment: 1 },
+            status:
+              attempts >= MAX_SEND_ATTEMPTS
+                ? ActionStatus.FAILED
+                : ActionStatus.PENDING,
+          },
+        });
+      }
+    }
   }
 
   private async seedNextStep(

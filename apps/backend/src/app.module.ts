@@ -17,6 +17,7 @@ import { DialerModule } from './dialer/dialer.module';
 import { GoalsModule } from './goals/goals.module';
 import { ClientCompaniesModule } from './client-companies/client-companies.module';
 import { PlayEngineModule } from './play-engine/play-engine.module';
+import { GmailModule } from './gmail/gmail.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -47,6 +48,7 @@ import { validateEnv } from './config/env.validation';
     GoalsModule,
     ClientCompaniesModule,
     PlayEngineModule,
+    GmailModule,
   ],
   controllers: [AppController],
   providers: [

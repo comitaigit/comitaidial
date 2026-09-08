@@ -44,6 +44,7 @@ model Tenant {
   prospectEvents     ProspectEvent[]
   stepExecutions     StepExecution[]
   actions            Action[]
+  googleAccounts     GoogleAccount[]
 
   @@map("tenants")
 }
@@ -80,12 +81,14 @@ model User {
   createdAt DateTime @default(now()) @updatedAt
   updatedAt DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  loginEvents   LoginEvent[]
-  activities    Activity[]
-  calls         Call[]
-  goals         Goal[]
-  dialBatches   DialBatch[]
+  refreshTokens      RefreshToken[]
+  loginEvents        LoginEvent[]
+  activities         Activity[]
+  calls              Call[]
+  goals              Goal[]
+  dialBatches        DialBatch[]
+  cadenceEnrollments CadenceEnrollment[]
+  googleAccount      GoogleAccount?
 
   @@index([tenantId])
   @@map("users")
@@ -364,6 +367,16 @@ model CadenceEnrollment {
   personId String
   person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
 
+  /// The BDR who enrolled this person — doubles as whose connected Gmail
+  /// account the Play Engine sends AI Email actions from for this
+  /// enrollment (see GmailService), since neither Account nor Cadence has
+  /// its own concept of an assigned owner. Nullable because it's new on an
+  /// additive migration — pre-existing enrollments have no value here, and
+  /// an AI Email action for one of them just fails with "no sender" rather
+  /// than guessing an owner.
+  enrolledById String?
+  enrolledBy   User?   @relation(fields: [enrolledById], references: [id], onDelete: SetNull)
+
   currentStepOrder Int     @default(0)
   active           Boolean @default(true)
 
@@ -553,6 +566,42 @@ model Action {
 
   @@index([tenantId, status])
   @@map("actions")
+}
+
+// --- AI Email ---
+// Each BDR connects their own Gmail account (OAuth2, offline access) so AI
+// Email actions send as them, not from a shared/transactional address — see
+// build-order item 3 (2026-09-08). One BDR, one Gmail account: reconnecting
+// overwrites the previous credential rather than allowing several.
+model GoogleAccount {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The connected Gmail address — shown in the UI so the BDR can confirm
+  /// which account they authorized, and used as the visible sender.
+  email String
+
+  /// AES-256-GCM ciphertext (iv + authTag + ciphertext, base64), encrypted
+  /// with TOKEN_ENCRYPTION_KEY — see GmailService.encrypt/decrypt. Unlike
+  /// the JWT refresh-token hash elsewhere in this schema, this must be
+  /// reversible: GmailService exchanges it for a fresh access token on
+  /// every send, it's never compared against an incoming value.
+  encryptedRefreshToken String
+
+  /// Space-separated OAuth scopes actually granted, as Google returned
+  /// them — lets a future scope expansion detect who needs to reconnect.
+  scope String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("google_accounts")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome

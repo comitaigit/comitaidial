@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   validateSync,
@@ -120,6 +121,33 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   DEEPGRAM_API_KEY!: string;
+
+  // Google Cloud Console → APIs & Services → Credentials → OAuth client ID
+  // (Web application). Register `${PUBLIC_API_URL}/v1/gmail/callback` as an
+  // authorized redirect URI. See src/gmail/gmail.service.ts.
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_CLIENT_ID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_CLIENT_SECRET!: string;
+
+  // Where a BDR's browser lands after the Gmail OAuth consent screen.
+  // No trailing slash (e.g. https://dev.comitai.app).
+  @IsString()
+  @IsNotEmpty()
+  FRONTEND_URL!: string;
+
+  // AES-256-GCM key (32 bytes, hex-encoded => 64 hex chars) used to encrypt
+  // each BDR's Gmail refresh token at rest — unlike the JWT refresh-token
+  // hash, this must be reversible so GmailService can mint a fresh access
+  // token on every send. Generate with `openssl rand -hex 32`.
+  @IsString()
+  @Matches(/^[0-9a-f]{64}$/i, {
+    message: 'TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes).',
+  })
+  TOKEN_ENCRYPTION_KEY!: string;
 }
 
 /**
