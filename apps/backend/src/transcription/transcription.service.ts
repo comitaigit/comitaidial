@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DeepgramClient } from '@deepgram/sdk';
-import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
 
 export type TranscriptUtterance = {
   speaker: number;
@@ -25,34 +25,18 @@ export type AiFeedback = {
 // separate, lower bar than the 60s "worth coaching" bar).
 const MIN_FEEDBACK_SECONDS = 60;
 
-function extractJson(text: string): Record<string, unknown> {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const candidate = fenced ? fenced[1] : text;
-  try {
-    const parsed: unknown = JSON.parse(candidate);
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 @Injectable()
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
   private readonly deepgram: DeepgramClient;
-  private readonly anthropic: Anthropic;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly ai: AiService,
   ) {
     this.deepgram = new DeepgramClient({
       apiKey: this.config.getOrThrow<string>('DEEPGRAM_API_KEY'),
-    });
-    this.anthropic = new Anthropic({
-      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
     });
   }
 
@@ -138,16 +122,7 @@ Responda em JSON, em português, com este formato exato:
 vendas (descoberta de necessidade, tratamento de objeções, próximos passos).
 Responda apenas com o JSON.`;
 
-      const message = await this.anthropic.messages.create({
-        model: 'claude-opus-5',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-      });
-
-      const textBlock = message.content.find(
-        (block): block is Anthropic.TextBlock => block.type === 'text',
-      );
-      const json = extractJson(textBlock?.text?.trim() ?? '{}');
+      const json = await this.ai.completeJson({ prompt, maxTokens: 1000 });
 
       const feedback: AiFeedback = {
         context: typeof json.context === 'string' ? json.context : '',

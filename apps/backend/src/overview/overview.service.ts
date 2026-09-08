@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { CallOutcome, Prisma } from '@prisma/client';
-import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOT_CONNECTED_OUTCOMES } from '../calls/outcome-status.util';
+import { AiService } from '../ai/ai.service';
 
 const PILL_TTL_MS = 10 * 60 * 1000;
 
@@ -42,7 +41,6 @@ export type TaskListItem = {
 
 @Injectable()
 export class OverviewService {
-  private readonly anthropic: Anthropic;
   // Keyed by `${tenantId}:${windowDays}` — each tenant/window combination's
   // pill is generated from its own data and must never leak into another's.
   private readonly pillCache = new Map<
@@ -51,13 +49,9 @@ export class OverviewService {
   >();
 
   constructor(
-    private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-  ) {
-    this.anthropic = new Anthropic({
-      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-    });
-  }
+    private readonly ai: AiService,
+  ) {}
 
   private windowStart(days: number): Date {
     const start = new Date();
@@ -274,16 +268,7 @@ Analise o conjunto e responda em JSON, em português, neste formato exato:
 }
 "painPoints" = as principais dores dos prospects identificadas nas conversas, rankeadas da mais frequente para a menos frequente. "objections" = as objeções mais recorrentes levantadas pelos prospects. Responda apenas com o JSON.`;
 
-    const message = await this.anthropic.messages.create({
-      model: 'claude-opus-5',
-      max_tokens: 800,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const textBlock = message.content.find(
-      (block): block is Anthropic.TextBlock => block.type === 'text',
-    );
-    const json = extractJson(textBlock?.text?.trim() ?? '{}');
+    const json = await this.ai.completeJson({ prompt, maxTokens: 800 });
 
     return {
       ready: true,
@@ -296,18 +281,5 @@ Analise o conjunto e responda em JSON, em português, neste formato exato:
       recommendation:
         typeof json.recommendation === 'string' ? json.recommendation : '',
     };
-  }
-}
-
-function extractJson(text: string): Record<string, unknown> {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const candidate = fenced ? fenced[1] : text;
-  try {
-    const parsed: unknown = JSON.parse(candidate);
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
   }
 }

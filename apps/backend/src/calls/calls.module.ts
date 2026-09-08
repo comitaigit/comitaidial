@@ -4,9 +4,10 @@ import { CallsService } from './calls.service';
 import { SuppressionModule } from '../suppression/suppression.module';
 import { TranscriptionModule } from '../transcription/transcription.module';
 import { DialerModule } from '../dialer/dialer.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [SuppressionModule, TranscriptionModule, DialerModule],
+  imports: [SuppressionModule, TranscriptionModule, DialerModule, AiModule],
   controllers: [CallsController],
   providers: [CallsService],
 })
