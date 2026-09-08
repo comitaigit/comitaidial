@@ -41,6 +41,9 @@ model Tenant {
   goals              Goal[]
   clientCompanies    ClientCompany[]
   dialBatches        DialBatch[]
+  prospectEvents     ProspectEvent[]
+  stepExecutions     StepExecution[]
+  actions            Action[]
 
   @@map("tenants")
 }
@@ -176,11 +179,12 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  people     Person[]
-  signals    Signal[]
-  activities Activity[]
-  tasks      Task[]
-  research   AccountResearch[]
+  people         Person[]
+  signals        Signal[]
+  activities     Activity[]
+  tasks          Task[]
+  research       AccountResearch[]
+  prospectEvents ProspectEvent[]
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -222,6 +226,8 @@ model Person {
   activities         Activity[]
   signals            Signal[]
   tasks              Task[]
+  prospectEvents     ProspectEvent[]
+  actions            Action[]
 
   @@index([tenantId])
   @@index([accountId])
@@ -283,6 +289,14 @@ model Cadence {
   clientCompanyId String?
   clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
 
+  /// Governs whether an AI-generated Action (email/LinkedIn content) from
+  /// this cadence's steps waits for a BDR to approve before it's dispatched
+  /// (MANUAL, the default — same "ask until you trust it" posture as a
+  /// fresh permission mode) or fires as soon as the engine decides it's
+  /// ready (FULL). Only gates AI-authored content — deterministic steps
+  /// like dialing are never held up by this.
+  approvalMode ApprovalMode @default(MANUAL)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -293,6 +307,11 @@ model Cadence {
   @@index([tenantId])
   @@index([clientCompanyId])
   @@map("cadences")
+}
+
+enum ApprovalMode {
+  MANUAL
+  FULL
 }
 
 model CadenceStep {
@@ -315,6 +334,17 @@ model CadenceStep {
   waitForConnectionAccepted Boolean @default(false)
 
   notes String?
+
+  /// Trigger/action config for the Play Engine — shape depends on `type`.
+  /// e.g. { "afterDays": 3 } or { "onEvent": "linkedin.connection.accepted" }
+  /// for triggerConfig; { "generateWithAI": true, "prompt": "..." } for
+  /// actionConfig. Kept as Json rather than dedicated columns/tables
+  /// deliberately — the shape is expected to grow with real Plays before
+  /// it's worth normalizing (2026-09-08).
+  triggerConfig Json?
+  actionConfig  Json?
+
+  stepExecutions StepExecution[]
 
   @@unique([cadenceId, order])
   @@index([tenantId])
@@ -345,10 +375,184 @@ model CadenceEnrollment {
 
   enrolledAt DateTime @default(now())
 
+  stepExecutions StepExecution[]
+
   @@unique([cadenceId, personId])
   @@index([tenantId])
   @@index([personId])
   @@map("cadence_enrollments")
+}
+
+// --- Play Engine ---
+// Generalizes the outcome→signal→next-action pattern the Dialer already
+// does in miniature (a call outcome writes a Signal + sometimes a Task) into
+// something CadenceStep can actually execute against, instead of just being
+// a template a human reads. See docs discussion 2026-09-08: the engine only
+// ever makes deterministic decisions (did the deadline pass? did the
+// expected event arrive?) — an AI-authored Action's *content* can come from
+// a prompt, but whether/when it fires never does.
+
+/// "Something happened" — the single source of truth the Play Engine polls
+/// for unprocessed rows to react to. Deliberately separate from Activity
+/// (the audit trail of what a human/system *did*) — this is what the
+/// outside world (or another part of the system) *told us happened*: an
+/// email was opened, a LinkedIn invite was accepted, a call was classified.
+model ProspectEvent {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// e.g. "email.sent", "email.bounced", "linkedin.connection.accepted",
+  /// "call.outcome_recorded" — free string, not an enum: the vocabulary of
+  /// event types is expected to grow with each new Action type without a
+  /// migration each time.
+  eventType String
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// Where this event came from — "dialer" | "email_provider" |
+  /// "linkedin_extension" | "enrichment" | ... — lets a StepExecution's
+  /// waitingForEvent match against provenance, not just event type, if two
+  /// sources ever emit the same type.
+  source   String
+  metadata Json
+
+  /// Null = not yet consumed by the Play Engine's poll loop. Set once a
+  /// StepExecution has acted on it, so the same event never advances two
+  /// executions or gets double-processed on a retried poll.
+  processedAt DateTime?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, processedAt])
+  @@index([personId])
+  @@index([accountId])
+  @@map("prospect_events")
+}
+
+enum StepExecutionStatus {
+  /// Waiting on triggerConfig.afterDays — becomes READY once scheduledFor
+  /// passes.
+  PENDING
+  /// Waiting on triggerConfig.onEvent — becomes READY once a matching
+  /// ProspectEvent is found.
+  WAITING_EVENT
+  /// Due to run; picked up by the next poll.
+  READY
+  /// Claimed by a poll iteration, action dispatch in flight.
+  EXECUTING
+  DONE
+  FAILED
+  /// Condition evaluated false with no retry path (e.g. lost the
+  /// discovery-of-manager branch) — distinct from FAILED, which means the
+  /// action itself errored.
+  SKIPPED
+}
+
+/// One row per (enrollment, step) the engine has ever considered — this is
+/// what actually makes a CadenceStep template run instead of just being a
+/// form a human fills in. The unique constraint is the engine's
+/// idempotency guarantee: a poll that finds the same enrollment+step twice
+/// (retry, duplicate tick) can never create a second execution for it.
+model StepExecution {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  enrollmentId String
+  enrollment   CadenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  cadenceStepId String
+  cadenceStep   CadenceStep @relation(fields: [cadenceStepId], references: [id], onDelete: Cascade)
+
+  status StepExecutionStatus @default(PENDING)
+
+  /// Resolved absolute time once triggerConfig.afterDays is known relative
+  /// to the previous step's completion — null for event-gated steps.
+  scheduledFor DateTime?
+
+  /// The ProspectEvent.eventType this execution is blocked on, when
+  /// status = WAITING_EVENT. Null otherwise.
+  waitingForEvent String?
+
+  executedAt DateTime?
+  /// Free-form result of the step once DONE/FAILED/SKIPPED — e.g. which
+  /// Action it produced, or why it was skipped.
+  outcome    Json?
+
+  createdAt DateTime @default(now())
+
+  actions Action[]
+
+  @@unique([enrollmentId, cadenceStepId])
+  @@index([tenantId, status, scheduledFor])
+  @@map("step_executions")
+}
+
+enum ActionType {
+  SEND_EMAIL
+  LINKEDIN_CONNECT
+  LINKEDIN_MESSAGE
+  ENRICH
+}
+
+enum ActionStatus {
+  /// Ready to dispatch — will be picked up immediately (Cadence.approvalMode
+  /// = FULL, or this Action type isn't AI-authored content).
+  PENDING
+  /// Cadence.approvalMode = MANUAL and this Action carries AI-generated
+  /// content — sits here until a BDR approves (or edits-then-approves) it
+  /// in the approvals queue. Never auto-advances out of this state.
+  PENDING_APPROVAL
+  SENT
+  FAILED
+  CANCELLED
+}
+
+/// A concrete, dispatchable action — the thing that actually leaves the
+/// system (an email, a LinkedIn action) or calls a paid provider (enrich).
+/// idempotencyKey is what makes a retried dispatch safe: the Action
+/// Dispatcher upserts on this key, never creates a second row for the same
+/// logical action.
+model Action {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  type ActionType
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  /// Null for an Action created outside the Play Engine (kept nullable
+  /// rather than required so this table can be reused later by something
+  /// that isn't step-driven, without a schema change).
+  stepExecutionId String?
+  stepExecution   StepExecution? @relation(fields: [stepExecutionId], references: [id], onDelete: SetNull)
+
+  status ActionStatus @default(PENDING)
+
+  /// Shape depends on `type` — e.g. { subject, body } for SEND_EMAIL,
+  /// { note } for LINKEDIN_CONNECT.
+  payload Json
+
+  idempotencyKey String @unique
+
+  attempts Int @default(0)
+
+  createdAt  DateTime  @default(now())
+  executedAt DateTime?
+
+  @@index([tenantId, status])
+  @@map("actions")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome
