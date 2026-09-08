@@ -123,6 +123,15 @@ export function useDialerStage() {
   );
 
   const startBatchRef = useRef<() => void>(() => {});
+  // Set when nobody picked up on any of the 3 lines and we want to redial
+  // automatically, but the BDR's own softphone leg (still sitting in the
+  // now-empty Conference room) hasn't confirmed disconnected yet — startBatch
+  // refuses to run while softphone.status isn't "ready", and that status
+  // flip happens asynchronously via the SDK's own disconnect event, not
+  // synchronously with the hangup() call below. The effect further down
+  // watches for that flip and fires the deferred redial once it lands,
+  // instead of the redial silently no-op'ing and leaving the BDR stuck.
+  const pendingAutoRedialRef = useRef(false);
 
   const pollBatch = useCallback(
     async (id: string) => {
@@ -153,15 +162,22 @@ export function useDialerStage() {
           settleLosingLegs(status.legs.map((l) => ({ personId: l.personId, status: l.status })));
           resetBatch();
           setBatchPhase("idle");
-          // Nobody picked up on any of the 3 lines — the next contacts take
-          // their place automatically, no BDR action needed.
-          startBatchRef.current();
+          // Nobody picked up on any of the 3 lines — force the BDR's own
+          // leg out of the now-empty Conference room (a no-op if it's
+          // already gone) and redial automatically once the softphone
+          // confirms it's back to "ready".
+          softphone.hangup();
+          if (softphone.status === "ready") {
+            startBatchRef.current();
+          } else {
+            pendingAutoRedialRef.current = true;
+          }
         }
       } catch {
         // best-effort poll — try again on the next tick
       }
     },
-    [accessToken, clearPoll, resetBatch, settleLosingLegs],
+    [accessToken, clearPoll, resetBatch, settleLosingLegs, softphone],
   );
 
   const startBatch = useCallback(async () => {
@@ -198,6 +214,15 @@ export function useDialerStage() {
   useEffect(() => {
     startBatchRef.current = () => void startBatch();
   }, [startBatch]);
+
+  // Fires the auto-redial pollBatch deferred because the softphone hadn't
+  // confirmed "ready" yet — see pendingAutoRedialRef above.
+  useEffect(() => {
+    if (pendingAutoRedialRef.current && softphone.status === "ready") {
+      pendingAutoRedialRef.current = false;
+      startBatchRef.current();
+    }
+  }, [softphone.status]);
 
   // Research card loads once a real prospect answers — deep research is
   // always post-connection, never pre-dial.

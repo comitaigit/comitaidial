@@ -75,16 +75,33 @@ export function useDialerQueue(cadenceId: string | null) {
 
   // Retry-eligible outcome (não atendeu / caixa postal / ocupado) — send it
   // to the back of the queue instead of dropping it.
-  const requeuePersonId = useCallback((personId: string) => {
-    setQueue((prev) => {
-      const index = prev.findIndex((item) => item.personId === personId);
-      if (index === -1) return prev;
-      const next = [...prev];
-      const [item] = next.splice(index, 1);
-      next.push(item);
-      return next;
-    });
-  }, []);
+  //
+  // Also persists the new order via the same reorderQueue endpoint moveItem
+  // uses — a purely local splice left the person's queuePosition untouched
+  // server-side, so the next getQueue() (a new discagem paralela batch,
+  // including the automatic no-answer retry) put them right back at the
+  // front and redialed the same people instead of moving on to the next 3.
+  const requeuePersonId = useCallback(
+    (personId: string) => {
+      setQueue((prev) => {
+        const index = prev.findIndex((item) => item.personId === personId);
+        if (index === -1) return prev;
+        const next = [...prev];
+        const [item] = next.splice(index, 1);
+        next.push(item);
+
+        if (cadenceId && accessToken) {
+          const personIds = next.map((i) => i.personId);
+          reorderQueue(cadenceId, personIds, accessToken).catch(() => {
+            toast("Não foi possível salvar a nova ordem da fila.");
+          });
+        }
+
+        return next;
+      });
+    },
+    [cadenceId, accessToken, toast],
+  );
 
   // Manual drag-and-drop reorder — same "whole new order is authoritative"
   // contract as reordering a playlist. Index 0 (the row currently being
