@@ -27,20 +27,36 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users              User[]
-  accounts           Account[]
-  people             Person[]
-  cadences           Cadence[]
-  cadenceSteps       CadenceStep[]
-  cadenceEnrollments CadenceEnrollment[]
-  calls              Call[]
-  signals            Signal[]
-  activities         Activity[]
-  tasks              Task[]
-  accountResearch    AccountResearch[]
-  goals              Goal[]
-  clientCompanies    ClientCompany[]
-  dialBatches        DialBatch[]
+  users                  User[]
+  accounts               Account[]
+  people                 Person[]
+  cadences               Cadence[]
+  cadenceSteps           CadenceStep[]
+  cadenceEnrollments     CadenceEnrollment[]
+  calls                  Call[]
+  signals                Signal[]
+  activities             Activity[]
+  tasks                  Task[]
+  accountResearch        AccountResearch[]
+  goals                  Goal[]
+  clientCompanies        ClientCompany[]
+  dialBatches            DialBatch[]
+  prospectEvents         ProspectEvent[]
+  stepExecutions         StepExecution[]
+  actions                Action[]
+  googleAccounts         GoogleAccount[]
+  enrichmentJobs         EnrichmentJob[]
+  prospectingJobs        ProspectingJob[]
+  assistantConversations AssistantConversation[]
+  assistantProposals     AssistantProposal[]
+  hubspotConnection      HubSpotConnection?
+  accountDiscoveryJobs   AccountDiscoveryJob[]
+
+  /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
+  /// debited only when a provider call actually fills a gap, never on a
+  /// miss or error. No billing/checkout exists yet; an ADMIN tops this up
+  /// via POST /v1/enrichment/credits/grant until one does.
+  enrichmentCreditBalance Int @default(0)
 
   @@map("tenants")
 }
@@ -77,12 +93,16 @@ model User {
   createdAt DateTime @default(now()) @updatedAt
   updatedAt DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  loginEvents   LoginEvent[]
-  activities    Activity[]
-  calls         Call[]
-  goals         Goal[]
-  dialBatches   DialBatch[]
+  refreshTokens          RefreshToken[]
+  loginEvents            LoginEvent[]
+  activities             Activity[]
+  calls                  Call[]
+  goals                  Goal[]
+  dialBatches            DialBatch[]
+  cadenceEnrollments     CadenceEnrollment[]
+  googleAccount          GoogleAccount?
+  assistantConversations AssistantConversation[]
+  assistantProposals     AssistantProposal[]
 
   @@index([tenantId])
   @@map("users")
@@ -173,14 +193,22 @@ model Account {
   /// transcript data, per the founder's rule captured 2026-08-21.
   pain String?
 
+  /// Set by the rep when this account is already a HubSpot company in the
+  /// tenant's own HubSpot account — read-only, no fuzzy matching (see
+  /// HubSpotService). Null means "not linked".
+  hubspotCompanyId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  people     Person[]
-  signals    Signal[]
-  activities Activity[]
-  tasks      Task[]
-  research   AccountResearch[]
+  people          Person[]
+  signals         Signal[]
+  activities      Activity[]
+  tasks           Task[]
+  research        AccountResearch[]
+  prospectEvents  ProspectEvent[]
+  enrichmentJobs  EnrichmentJob[]
+  prospectingJobs ProspectingJob[]
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -214,6 +242,11 @@ model Person {
   /// decisor operacional / influenciador indireto.
   influenceLevel InfluenceLevel?
 
+  /// Set by the rep when this contact is already a HubSpot contact in the
+  /// tenant's own HubSpot account — read-only, no fuzzy matching (see
+  /// HubSpotService). Null means "not linked".
+  hubspotContactId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -222,6 +255,10 @@ model Person {
   activities         Activity[]
   signals            Signal[]
   tasks              Task[]
+  prospectEvents     ProspectEvent[]
+  actions            Action[]
+  enrichmentJobs     EnrichmentJob[]
+  prospectingJobs    ProspectingJob[]
 
   @@index([tenantId])
   @@index([accountId])
@@ -258,11 +295,19 @@ model ClientCompany {
   /// a sharper battlecard. Optional; the prompt works with just name+product.
   positioning String?
 
+  /// Job titles/role keywords that count as ICP fit for this product (e.g.
+  /// ["Diretor Comercial", "VP Sales"]) — the basic ICP question AI
+  /// Prospecting requires an answer to before it spends a provider credit
+  /// searching for a contact (founder's rule, 2026-09). Empty means
+  /// prospecting isn't configured yet for this ClientCompany.
+  targetRoles String[] @default([])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   cadences        Cadence[]
   accountResearch AccountResearch[]
+  prospectingJobs ProspectingJob[]
 
   @@index([tenantId])
   @@map("client_companies")
@@ -283,6 +328,14 @@ model Cadence {
   clientCompanyId String?
   clientCompany   ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
 
+  /// Governs whether an AI-generated Action (email/LinkedIn content) from
+  /// this cadence's steps waits for a BDR to approve before it's dispatched
+  /// (MANUAL, the default — same "ask until you trust it" posture as a
+  /// fresh permission mode) or fires as soon as the engine decides it's
+  /// ready (FULL). Only gates AI-authored content — deterministic steps
+  /// like dialing are never held up by this.
+  approvalMode ApprovalMode @default(MANUAL)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -293,6 +346,11 @@ model Cadence {
   @@index([tenantId])
   @@index([clientCompanyId])
   @@map("cadences")
+}
+
+enum ApprovalMode {
+  MANUAL
+  FULL
 }
 
 model CadenceStep {
@@ -316,6 +374,17 @@ model CadenceStep {
 
   notes String?
 
+  /// Trigger/action config for the Play Engine — shape depends on `type`.
+  /// e.g. { "afterDays": 3 } or { "onEvent": "linkedin.connection.accepted" }
+  /// for triggerConfig; { "generateWithAI": true, "prompt": "..." } for
+  /// actionConfig. Kept as Json rather than dedicated columns/tables
+  /// deliberately — the shape is expected to grow with real Plays before
+  /// it's worth normalizing (2026-09-08).
+  triggerConfig Json?
+  actionConfig  Json?
+
+  stepExecutions StepExecution[]
+
   @@unique([cadenceId, order])
   @@index([tenantId])
   @@index([cadenceId])
@@ -334,6 +403,16 @@ model CadenceEnrollment {
   personId String
   person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
 
+  /// The BDR who enrolled this person — doubles as whose connected Gmail
+  /// account the Play Engine sends AI Email actions from for this
+  /// enrollment (see GmailService), since neither Account nor Cadence has
+  /// its own concept of an assigned owner. Nullable because it's new on an
+  /// additive migration — pre-existing enrollments have no value here, and
+  /// an AI Email action for one of them just fails with "no sender" rather
+  /// than guessing an owner.
+  enrolledById String?
+  enrolledBy   User?   @relation(fields: [enrolledById], references: [id], onDelete: SetNull)
+
   currentStepOrder Int     @default(0)
   active           Boolean @default(true)
 
@@ -345,10 +424,483 @@ model CadenceEnrollment {
 
   enrolledAt DateTime @default(now())
 
+  stepExecutions StepExecution[]
+
   @@unique([cadenceId, personId])
   @@index([tenantId])
   @@index([personId])
   @@map("cadence_enrollments")
+}
+
+// --- Play Engine ---
+// Generalizes the outcome→signal→next-action pattern the Dialer already
+// does in miniature (a call outcome writes a Signal + sometimes a Task) into
+// something CadenceStep can actually execute against, instead of just being
+// a template a human reads. See docs discussion 2026-09-08: the engine only
+// ever makes deterministic decisions (did the deadline pass? did the
+// expected event arrive?) — an AI-authored Action's *content* can come from
+// a prompt, but whether/when it fires never does.
+
+/// "Something happened" — the single source of truth the Play Engine polls
+/// for unprocessed rows to react to. Deliberately separate from Activity
+/// (the audit trail of what a human/system *did*) — this is what the
+/// outside world (or another part of the system) *told us happened*: an
+/// email was opened, a LinkedIn invite was accepted, a call was classified.
+model ProspectEvent {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// e.g. "email.sent", "email.bounced", "linkedin.connection.accepted",
+  /// "call.outcome_recorded" — free string, not an enum: the vocabulary of
+  /// event types is expected to grow with each new Action type without a
+  /// migration each time.
+  eventType String
+
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// Where this event came from — "dialer" | "email_provider" |
+  /// "linkedin_extension" | "enrichment" | ... — lets a StepExecution's
+  /// waitingForEvent match against provenance, not just event type, if two
+  /// sources ever emit the same type.
+  source   String
+  metadata Json
+
+  /// Null = not yet consumed by the Play Engine's poll loop. Set once a
+  /// StepExecution has acted on it, so the same event never advances two
+  /// executions or gets double-processed on a retried poll.
+  processedAt DateTime?
+
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, processedAt])
+  @@index([personId])
+  @@index([accountId])
+  @@map("prospect_events")
+}
+
+enum StepExecutionStatus {
+  /// Waiting on triggerConfig.afterDays — becomes READY once scheduledFor
+  /// passes.
+  PENDING
+  /// Waiting on triggerConfig.onEvent — becomes READY once a matching
+  /// ProspectEvent is found.
+  WAITING_EVENT
+  /// Due to run; picked up by the next poll.
+  READY
+  /// Claimed by a poll iteration, action dispatch in flight.
+  EXECUTING
+  DONE
+  FAILED
+  /// Condition evaluated false with no retry path (e.g. lost the
+  /// discovery-of-manager branch) — distinct from FAILED, which means the
+  /// action itself errored.
+  SKIPPED
+}
+
+/// One row per (enrollment, step) the engine has ever considered — this is
+/// what actually makes a CadenceStep template run instead of just being a
+/// form a human fills in. The unique constraint is the engine's
+/// idempotency guarantee: a poll that finds the same enrollment+step twice
+/// (retry, duplicate tick) can never create a second execution for it.
+model StepExecution {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  enrollmentId String
+  enrollment   CadenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  cadenceStepId String
+  cadenceStep   CadenceStep @relation(fields: [cadenceStepId], references: [id], onDelete: Cascade)
+
+  status StepExecutionStatus @default(PENDING)
+
+  /// Resolved absolute time once triggerConfig.afterDays is known relative
+  /// to the previous step's completion — null for event-gated steps.
+  scheduledFor DateTime?
+
+  /// The ProspectEvent.eventType this execution is blocked on, when
+  /// status = WAITING_EVENT. Null otherwise.
+  waitingForEvent String?
+
+  executedAt DateTime?
+  /// Free-form result of the step once DONE/FAILED/SKIPPED — e.g. which
+  /// Action it produced, or why it was skipped.
+  outcome    Json?
+
+  createdAt DateTime @default(now())
+
+  actions Action[]
+
+  @@unique([enrollmentId, cadenceStepId])
+  @@index([tenantId, status, scheduledFor])
+  @@map("step_executions")
+}
+
+enum ActionType {
+  SEND_EMAIL
+  LINKEDIN_CONNECT
+  LINKEDIN_MESSAGE
+  ENRICH
+}
+
+enum ActionStatus {
+  /// Ready to dispatch — will be picked up immediately (Cadence.approvalMode
+  /// = FULL, or this Action type isn't AI-authored content).
+  PENDING
+  /// Cadence.approvalMode = MANUAL and this Action carries AI-generated
+  /// content — sits here until a BDR approves (or edits-then-approves) it
+  /// in the approvals queue. Never auto-advances out of this state.
+  PENDING_APPROVAL
+  SENT
+  FAILED
+  CANCELLED
+}
+
+/// A concrete, dispatchable action — the thing that actually leaves the
+/// system (an email, a LinkedIn action) or calls a paid provider (enrich).
+/// idempotencyKey is what makes a retried dispatch safe: the Action
+/// Dispatcher upserts on this key, never creates a second row for the same
+/// logical action.
+model Action {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  type ActionType
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  /// Null for an Action created outside the Play Engine (kept nullable
+  /// rather than required so this table can be reused later by something
+  /// that isn't step-driven, without a schema change).
+  stepExecutionId String?
+  stepExecution   StepExecution? @relation(fields: [stepExecutionId], references: [id], onDelete: SetNull)
+
+  status ActionStatus @default(PENDING)
+
+  /// Shape depends on `type` — e.g. { subject, body } for SEND_EMAIL,
+  /// { note } for LINKEDIN_CONNECT.
+  payload Json
+
+  idempotencyKey String @unique
+
+  attempts Int @default(0)
+
+  createdAt  DateTime  @default(now())
+  executedAt DateTime?
+
+  @@index([tenantId, status])
+  @@map("actions")
+}
+
+// --- AI Email ---
+// Each BDR connects their own Gmail account (OAuth2, offline access) so AI
+// Email actions send as them, not from a shared/transactional address — see
+// build-order item 3 (2026-09-08). One BDR, one Gmail account: reconnecting
+// overwrites the previous credential rather than allowing several.
+model GoogleAccount {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The connected Gmail address — shown in the UI so the BDR can confirm
+  /// which account they authorized, and used as the visible sender.
+  email String
+
+  /// AES-256-GCM ciphertext (iv + authTag + ciphertext, base64), encrypted
+  /// with TOKEN_ENCRYPTION_KEY — see GmailService.encrypt/decrypt. Unlike
+  /// the JWT refresh-token hash elsewhere in this schema, this must be
+  /// reversible: GmailService exchanges it for a fresh access token on
+  /// every send, it's never compared against an incoming value.
+  encryptedRefreshToken String
+
+  /// Space-separated OAuth scopes actually granted, as Google returned
+  /// them — lets a future scope expansion detect who needs to reconnect.
+  scope String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("google_accounts")
+}
+
+// --- HubSpot (read-only) ---
+// One connection per tenant, not per BDR — HubSpot is the tenant's shared
+// CRM, unlike Gmail which is personal per BDR. Uses a HubSpot Private App
+// token (pasted by an admin from their own HubSpot Settings → Integrations
+// → Private Apps) rather than OAuth: a public OAuth app would need HubSpot
+// to review and list it, which is unnecessary friction for a single-tenant-
+// at-a-time read integration. Person.hubspotContactId / Account.
+// hubspotCompanyId are set manually by the rep — no fuzzy identity
+// matching, per the build-order decision (2026-09).
+model HubSpotConnection {
+  id String @id @default(uuid())
+
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// AES-256-GCM ciphertext (see EncryptionService) — reversible like the
+  /// Gmail refresh token, since every read calls the HubSpot API live.
+  encryptedAccessToken String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("hubspot_connections")
+}
+
+// --- Data Enrichment ---
+// Pay-per-result billing (adopted from evaluating TexAu's model, 2026-09):
+// a provider call that comes back empty or errors costs the tenant nothing
+// — only a call that actually fills a data gap debits enrichmentCreditBalance.
+// One job per provider call, kept as an audit trail rather than only a
+// running balance, so "why did our credits drop" is always answerable.
+
+enum EnrichmentProviderName {
+  LUSHA
+}
+
+enum EnrichmentJobStatus {
+  /// Provider returned at least one field this record didn't already have.
+  SUCCESS
+  /// Provider call succeeded but had nothing new to add.
+  NO_MATCH
+  /// Provider call itself failed (network, auth, rate limit, ...).
+  FAILED
+}
+
+model EnrichmentJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Exactly one of personId/accountId is set — a job enriches either a
+  /// contact (email/phone) or a company (domain/segment), never both.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS — see the pay-per-result note above.
+  creditsCharged Int @default(0)
+
+  /// Which fields were actually filled (e.g. ["email", "phone"]) — empty
+  /// for NO_MATCH/FAILED. Kept as Json rather than a join table since it's
+  /// display/audit-only, never queried by field name.
+  fieldsFilled Json?
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([personId])
+  @@index([accountId])
+  @@map("enrichment_jobs")
+}
+
+// --- AI Prospecting (variant A: find the right contact at a known Account) ---
+// Searches a provider for a person matching ClientCompany.targetRoles at an
+// Account that already exists in Comitai — this is the "who's the right
+// buyer here" step, distinct from EnrichmentJob (which fills gaps on a
+// contact/company we already have). Shares the same credit pool
+// (Tenant.enrichmentCreditBalance) and pay-per-result policy: a search
+// that finds nobody or errors costs nothing.
+model ProspectingJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  clientCompanyId String
+  clientCompany   ClientCompany @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS.
+  creditsCharged Int @default(0)
+
+  /// The Person created from this search, when status = SUCCESS. Nullable
+  /// (not required) so the row survives if that Person is later deleted.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([accountId])
+  @@map("prospecting_jobs")
+}
+
+// --- AI Prospecting (variant B: discover new Accounts via lookalike) ---
+// Unlike variant A (find a contact at an Account we already have), this
+// discovers entirely new companies — seeded by a set of existing Accounts
+// the BDR considers good-fit (Lusha's lookalike API requires 5-100 seed
+// companies, so there's no single-account "find similar" shape; the ICP
+// here is implicitly whatever the chosen seeds have in common, rather than
+// a separate configured field). Pay-per-result: credits charged equal the
+// number of new Accounts actually created, not a flat per-call cost.
+model AccountDiscoveryJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// The Accounts used as lookalike seeds for this run.
+  seedAccountIds String[]
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS.
+  creditsCharged Int @default(0)
+
+  /// The new Accounts this job created.
+  createdAccountIds String[] @default([])
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("account_discovery_jobs")
+}
+
+// --- Assistente ---
+// A conversational, per-BDR assistant over Claude's native tool use.
+// Messages are stored as raw Anthropic content blocks (not just text) so a
+// tool_use/tool_result pair can be replayed verbatim on the next turn —
+// the Claude API's multi-turn tool-use contract requires the exact block
+// structure, not a re-derived summary. Item 6 (2026-09) ships only
+// auto-executing read-only tools; item 7 adds proposal tools, which never
+// auto-execute regardless of the cadence's ApprovalMode — same principle,
+// applied to a human chatting instead of a Play running unattended.
+model AssistantConversation {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// First user message, truncated — set once, shown in a conversation
+  /// list. Null until that first message is sent.
+  title String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  AssistantMessage[]
+  proposals AssistantProposal[]
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("assistant_conversations")
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+}
+
+model AssistantMessage {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role AssistantMessageRole
+
+  /// Anthropic.MessageParam['content'] verbatim — a string for a plain
+  /// user message, or the full content-block array (text/tool_use/
+  /// tool_result) for anything tool-use touched.
+  content Json
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@map("assistant_messages")
+}
+
+// Item 7: proposal tools. Deliberately its own table rather than reusing
+// the Play Engine's Action — Action is step-execution-driven and dispatched
+// unattended by the poll loop; a proposal is chat-initiated and always
+// waits on an explicit human click, regardless of any cadence's
+// ApprovalMode (that setting only ever governed unattended Play Engine
+// actions, never a human conversation). Execution happens synchronously at
+// approval time, not via a dispatcher, so there's no separate
+// "approved but not yet executed" state.
+enum AssistantProposalType {
+  ENROLL_IN_CADENCE
+  SEND_EMAIL
+  ENRICH_PERSON
+}
+
+enum AssistantProposalStatus {
+  PENDING
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+model AssistantProposal {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type   AssistantProposalType
+  status AssistantProposalStatus @default(PENDING)
+
+  /// Tool-specific input the model proposed — e.g. {personId, cadenceId}
+  /// or {personId, subject, body}. Re-validated at approval time (never
+  /// trusted as-is), since a human can take minutes or hours to confirm.
+  payload Json
+
+  /// Set once resolved: the created enrollment/job id on EXECUTED, or an
+  /// error message on FAILED. Null while PENDING/REJECTED.
+  result Json?
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([tenantId])
+  @@index([conversationId])
+  @@map("assistant_proposals")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome

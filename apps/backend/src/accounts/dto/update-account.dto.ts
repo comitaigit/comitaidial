@@ -18,4 +18,11 @@ export class UpdateAccountDto {
   @IsOptional()
   @MaxLength(2000)
   pain?: string;
+
+  // Links this Account to a company in the tenant's own HubSpot account —
+  // set manually, no fuzzy matching. See src/hubspot/hubspot.service.ts.
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  hubspotCompanyId?: string;
 }

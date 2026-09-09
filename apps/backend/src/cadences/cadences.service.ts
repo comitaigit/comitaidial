@@ -99,7 +99,12 @@ export class CadencesService {
       if (!person) throw new NotFoundException('Person not found.');
 
       const enrollment = await tx.cadenceEnrollment.create({
-        data: { cadenceId, personId: dto.personId, tenantId },
+        data: {
+          cadenceId,
+          personId: dto.personId,
+          tenantId,
+          enrolledById: userId,
+        },
       });
       await tx.activity.create({
         data: {

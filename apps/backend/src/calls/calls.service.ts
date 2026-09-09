@@ -9,11 +9,11 @@ import {
   SignalCategory,
 } from '@prisma/client';
 import Twilio from 'twilio';
-import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from '../suppression/suppression.service';
 import { TranscriptionService } from '../transcription/transcription.service';
 import { DialerService } from '../dialer/dialer.service';
+import { AiService } from '../ai/ai.service';
 import { UpdateCallOutcomeDto } from './dto/update-call-outcome.dto';
 
 // A call only counts as a real conversation once connected for >= 30s —
@@ -96,7 +96,6 @@ export class CallsService {
   private readonly logger = new Logger(CallsService.name);
   private readonly client: Twilio.Twilio;
   private readonly fromNumber: string;
-  private readonly anthropic: Anthropic;
 
   constructor(
     private readonly config: ConfigService,
@@ -104,15 +103,13 @@ export class CallsService {
     private readonly suppression: SuppressionService,
     private readonly transcription: TranscriptionService,
     private readonly dialer: DialerService,
+    private readonly ai: AiService,
   ) {
     this.client = Twilio(
       this.config.getOrThrow<string>('TWILIO_ACCOUNT_SID'),
       this.config.getOrThrow<string>('TWILIO_AUTH_TOKEN'),
     );
     this.fromNumber = this.config.getOrThrow<string>('TWILIO_PHONE_NUMBER');
-    this.anthropic = new Anthropic({
-      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-    });
   }
 
   findAll(tenantId: string, personId?: string) {
@@ -875,20 +872,10 @@ export class CallsService {
     callbackNotes: string,
   ): Promise<void> {
     try {
-      const message = await this.anthropic.messages.create({
-        model: 'claude-opus-5',
-        max_tokens: 150,
-        messages: [
-          {
-            role: 'user',
-            content: `Resuma em UMA frase curta (máximo 20 palavras), em português, o que o prospect pediu nesta anotação de um BDR sobre um retorno de ligação. Sem aspas, sem markdown. Responda apenas com a frase.\n\nAnotação: ${callbackNotes}`,
-          },
-        ],
+      const summary = await this.ai.complete({
+        maxTokens: 150,
+        prompt: `Resuma em UMA frase curta (máximo 20 palavras), em português, o que o prospect pediu nesta anotação de um BDR sobre um retorno de ligação. Sem aspas, sem markdown. Responda apenas com a frase.\n\nAnotação: ${callbackNotes}`,
       });
-      const textBlock = message.content.find(
-        (block): block is Anthropic.TextBlock => block.type === 'text',
-      );
-      const summary = textBlock?.text.trim();
       if (!summary) return;
 
       await this.prisma.task.update({

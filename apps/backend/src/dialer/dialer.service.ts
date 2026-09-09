@@ -3,11 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AccountPriority, ClientCompany, InfluenceLevel } from '@prisma/client';
-import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuppressionService } from '../suppression/suppression.service';
+import { AiModel, AiService } from '../ai/ai.service';
 
 export type QueueItem = {
   personId: string;
@@ -49,32 +48,13 @@ const PRIORITY_RANK: Record<AccountPriority, number> = {
   LOW: 2,
 };
 
-function extractJson(text: string): Record<string, unknown> {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const candidate = fenced ? fenced[1] : text;
-  try {
-    const parsed: unknown = JSON.parse(candidate);
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 @Injectable()
 export class DialerService {
-  private readonly anthropic: Anthropic;
-
   constructor(
-    private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly suppression: SuppressionService,
-  ) {
-    this.anthropic = new Anthropic({
-      apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-    });
-  }
+    private readonly ai: AiService,
+  ) {}
 
   // Dialable prospects enrolled in one cadence — phone required, suppressed
   // numbers excluded, ordered by account priority. Discagem paralela ainda
@@ -337,16 +317,11 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
 }
 "objections" deve ter 2-3 itens. "battlecards" deve ter até 3 itens.`;
 
-    const message = await this.anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }],
+    const json = await this.ai.completeJson({
+      prompt,
+      maxTokens: 2000,
+      model: AiModel.HAIKU,
     });
-
-    const textBlock = message.content.find(
-      (block): block is Anthropic.TextBlock => block.type === 'text',
-    );
-    const json = extractJson(textBlock?.text?.trim() ?? '{}');
 
     return {
       companyOverview:

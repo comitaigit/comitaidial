@@ -121,13 +121,19 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('refresh')
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const rawRefreshToken = req.cookies?.[this.cookieName()];
     if (!rawRefreshToken) {
       throw new UnauthorizedException('Missing session.');
     }
 
-    const result = await this.auth.refresh(rawRefreshToken, this.requestMeta(req));
+    const result = await this.auth.refresh(
+      rawRefreshToken,
+      this.requestMeta(req),
+    );
     this.setRefreshCookie(res, result.refreshToken);
     return { accessToken: result.accessToken, user: result.user };
   }
@@ -140,14 +146,21 @@ export class AuthController {
   ) {
     const rawRefreshToken = req.cookies?.[this.cookieName()];
     if (rawRefreshToken) {
-      await this.auth.logout(rawRefreshToken, user.userId, this.requestMeta(req));
+      await this.auth.logout(
+        rawRefreshToken,
+        user.userId,
+        this.requestMeta(req),
+      );
     }
     this.clearRefreshCookie(res);
     return { success: true };
   }
 
   @Post('logout-all')
-  async logoutAll(@CurrentUser() user: AuthenticatedUser, @Res({ passthrough: true }) res: Response) {
+  async logoutAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     await this.auth.logoutAllSessions(user.userId);
     this.clearRefreshCookie(res);
     return { success: true };
