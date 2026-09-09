@@ -4,6 +4,7 @@ import { AssistantMessageRole, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { AssistantToolsService } from './tools/assistant-tools.service';
+import { AssistantProposalToolsService } from './tools/assistant-proposal-tools.service';
 
 const MAX_TOOL_ITERATIONS = 6;
 const MAX_TOKENS = 2000;
@@ -12,7 +13,14 @@ const SYSTEM_PROMPT = `Você é o assistente de vendas B2B da Comitai, integrado
 Ajude o BDR a encontrar informações sobre empresas, contatos, histórico de ligações e
 créditos de enriquecimento/prospecção usando as ferramentas disponíveis. Responda sempre
 em português, de forma direta e curta. Nunca invente dados — se uma ferramenta não
-encontrar algo, diga isso claramente em vez de supor.`;
+encontrar algo, diga isso claramente em vez de supor.
+
+Você também tem ferramentas "propose_*" que criam propostas de ação (inscrever em
+cadência, enviar e-mail, enriquecer contato). Essas ferramentas NUNCA executam a ação
+diretamente — elas apenas registram uma proposta pendente que o próprio BDR precisa
+confirmar na interface. Depois de usar uma ferramenta propose_*, sempre informe
+claramente ao usuário que a ação está aguardando a confirmação dele e não foi
+executada ainda.`;
 
 function toDisplayText(
   content: string | Anthropic.ContentBlockParam[],
@@ -34,6 +42,7 @@ export class AssistantService {
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
     private readonly tools: AssistantToolsService,
+    private readonly proposalTools: AssistantProposalToolsService,
   ) {}
 
   async listConversations(tenantId: string, userId: string) {
@@ -50,10 +59,16 @@ export class AssistantService {
     });
     if (!conversation) throw new NotFoundException('Conversation not found.');
 
-    const messages = await this.prisma.assistantMessage.findMany({
-      where: { conversationId: id },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [messages, proposals] = await Promise.all([
+      this.prisma.assistantMessage.findMany({
+        where: { conversationId: id },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.assistantProposal.findMany({
+        where: { conversationId: id },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
 
     return {
       id: conversation.id,
@@ -67,6 +82,7 @@ export class AssistantService {
           createdAt: m.createdAt,
         }))
         .filter((m) => m.text.length > 0),
+      proposals,
     };
   }
 
@@ -108,7 +124,10 @@ export class AssistantService {
       userText,
     );
 
-    const toolDefinitions = this.tools.getReadOnlyTools();
+    const toolDefinitions = [
+      ...this.tools.getReadOnlyTools(),
+      ...this.proposalTools.getProposalTools(),
+    ];
     const toolSpecs = toolDefinitions.map((t) => t.spec);
 
     let replyText = '';
@@ -141,7 +160,11 @@ export class AssistantService {
         const tool = toolDefinitions.find((t) => t.spec.name === block.name);
         try {
           const result = tool
-            ? await tool.execute(block.input, { tenantId })
+            ? await tool.execute(block.input, {
+                tenantId,
+                userId,
+                conversationId: activeConversation.id,
+              })
             : { error: `Unknown tool: ${block.name}` };
           toolResults.push({
             type: 'tool_result',

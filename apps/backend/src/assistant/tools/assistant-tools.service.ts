@@ -1,19 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EnrichmentService } from '../../enrichment/enrichment.service';
-
-export interface ToolContext {
-  tenantId: string;
-}
-
-export interface ToolDefinition {
-  spec: Anthropic.Tool;
-  // Anthropic's tool_use.input arrives as `unknown` (parsed JSON per the
-  // model's own schema, no compile-time guarantee) — each execute() casts
-  // it to the shape its own spec.input_schema declares.
-  execute(input: unknown, ctx: ToolContext): Promise<unknown>;
-}
+import { ToolDefinition } from './tool.types';
 
 // Auto-executing, read-only tools for the Assistant (build item 6). None
 // of these can change data — that's deliberate: a tool that could requires

@@ -48,6 +48,7 @@ model Tenant {
   enrichmentJobs         EnrichmentJob[]
   prospectingJobs        ProspectingJob[]
   assistantConversations AssistantConversation[]
+  assistantProposals     AssistantProposal[]
 
   /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
   /// debited only when a provider call actually fills a gap, never on a
@@ -99,6 +100,7 @@ model User {
   cadenceEnrollments     CadenceEnrollment[]
   googleAccount          GoogleAccount?
   assistantConversations AssistantConversation[]
+  assistantProposals     AssistantProposal[]
 
   @@index([tenantId])
   @@map("users")
@@ -745,7 +747,8 @@ model AssistantConversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  messages AssistantMessage[]
+  messages  AssistantMessage[]
+  proposals AssistantProposal[]
 
   @@index([tenantId])
   @@index([userId])
@@ -774,6 +777,59 @@ model AssistantMessage {
 
   @@index([conversationId])
   @@map("assistant_messages")
+}
+
+// Item 7: proposal tools. Deliberately its own table rather than reusing
+// the Play Engine's Action — Action is step-execution-driven and dispatched
+// unattended by the poll loop; a proposal is chat-initiated and always
+// waits on an explicit human click, regardless of any cadence's
+// ApprovalMode (that setting only ever governed unattended Play Engine
+// actions, never a human conversation). Execution happens synchronously at
+// approval time, not via a dispatcher, so there's no separate
+// "approved but not yet executed" state.
+enum AssistantProposalType {
+  ENROLL_IN_CADENCE
+  SEND_EMAIL
+  ENRICH_PERSON
+}
+
+enum AssistantProposalStatus {
+  PENDING
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+model AssistantProposal {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type   AssistantProposalType
+  status AssistantProposalStatus @default(PENDING)
+
+  /// Tool-specific input the model proposed — e.g. {personId, cadenceId}
+  /// or {personId, subject, body}. Re-validated at approval time (never
+  /// trusted as-is), since a human can take minutes or hours to confirm.
+  payload Json
+
+  /// Set once resolved: the created enrollment/job id on EXECUTED, or an
+  /// error message on FAILED. Null while PENDING/REJECTED.
+  result Json?
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([tenantId])
+  @@index([conversationId])
+  @@map("assistant_proposals")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome
