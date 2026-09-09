@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   validateSync,
@@ -75,9 +76,85 @@ class EnvironmentVariables {
   @IsNotEmpty()
   TWILIO_AUTH_TOKEN!: string;
 
+  // The caller ID used as `From` on outbound calls — either a Twilio-owned
+  // number or a Verified Caller ID under the account. Must be in E.164
+  // format (e.g. +5511958028794).
   @IsString()
   @IsNotEmpty()
   TWILIO_PHONE_NUMBER!: string;
+
+  // API Key (not the main Auth Token) used to sign browser Voice Access
+  // Tokens — Twilio's jwt.AccessToken requires an API Key SID/Secret pair,
+  // not the account's main credentials. Create one in Console → Account →
+  // API keys & tokens.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_API_KEY_SECRET!: string;
+
+  // The TwiML App whose Voice URL points at this backend's
+  // /v1/calls/voice webhook — see calls.controller.ts.
+  @IsString()
+  @IsNotEmpty()
+  TWILIO_TWIML_APP_SID!: string;
+
+  // This API's own public base URL (e.g. https://dev.api.comitai.app), used
+  // to reconstruct the exact URL Twilio signed when validating the /calls/voice
+  // webhook's X-Twilio-Signature — reconstructing it from request headers
+  // instead would depend on trusting proxy headers, which is fragile behind
+  // Nginx and would let a forged request bypass signature validation.
+  @IsString()
+  @IsNotEmpty()
+  PUBLIC_API_URL!: string;
+
+  // Used to generate the Overview page's AI insight pill — see
+  // src/overview/overview.service.ts. Console → Settings → API Keys.
+  @IsString()
+  @IsNotEmpty()
+  ANTHROPIC_API_KEY!: string;
+
+  // Transcribes recorded calls for Call Check — console.deepgram.com →
+  // API Keys. See src/transcription/transcription.service.ts.
+  @IsString()
+  @IsNotEmpty()
+  DEEPGRAM_API_KEY!: string;
+
+  // Google Cloud Console → APIs & Services → Credentials → OAuth client ID
+  // (Web application). Register `${PUBLIC_API_URL}/v1/gmail/callback` as an
+  // authorized redirect URI. See src/gmail/gmail.service.ts.
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_CLIENT_ID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_CLIENT_SECRET!: string;
+
+  // Where a BDR's browser lands after the Gmail OAuth consent screen.
+  // No trailing slash (e.g. https://dev.comitai.app).
+  @IsString()
+  @IsNotEmpty()
+  FRONTEND_URL!: string;
+
+  // AES-256-GCM key (32 bytes, hex-encoded => 64 hex chars) used to encrypt
+  // each BDR's Gmail refresh token at rest — unlike the JWT refresh-token
+  // hash, this must be reversible so GmailService can mint a fresh access
+  // token on every send. Generate with `openssl rand -hex 32`.
+  @IsString()
+  @Matches(/^[0-9a-f]{64}$/i, {
+    message: 'TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes).',
+  })
+  TOKEN_ENCRYPTION_KEY!: string;
+
+  // Data Enrichment provider — app.lusha.com → Settings → API. See
+  // src/enrichment/providers/lusha.provider.ts for a caveat: the exact
+  // request/response shape there is unverified against Lusha's live docs.
+  @IsString()
+  @IsNotEmpty()
+  LUSHA_API_KEY!: string;
 }
 
 /**

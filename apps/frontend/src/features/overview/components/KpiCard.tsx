@@ -9,7 +9,7 @@ export function KpiCard({
 }: {
   label: string;
   value: string | number;
-  delta: string;
+  delta?: string;
   bad?: boolean;
 }) {
   return (
@@ -18,9 +18,9 @@ export function KpiCard({
         {label}
       </div>
       <div className="mt-1.5 text-[27px] font-extrabold">{value}</div>
-      <div className={cn("mt-1 text-xs", bad ? "text-bad" : "text-ok")}>
-        {delta}
-      </div>
+      {delta ? (
+        <div className={cn("mt-1 text-xs", bad ? "text-bad" : "text-ok")}>{delta}</div>
+      ) : null}
     </Card>
   );
 }

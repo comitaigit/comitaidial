@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comitai</title>
+    <style>
+      body {
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+        width: 320px;
+        padding: 14px;
+        margin: 0;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      h2 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: #666;
+        margin: 16px 0 8px;
+      }
+      .muted {
+        color: #888;
+      }
+      .action-card {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+      }
+      .action-type {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #1f4dbf;
+        font-weight: 600;
+      }
+      .action-person a {
+        color: #1a1a1a;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .action-person a:hover {
+        text-decoration: underline;
+      }
+      .action-content {
+        margin: 4px 0 8px;
+        color: #333;
+        white-space: pre-wrap;
+      }
+      .action-buttons {
+        display: flex;
+        gap: 6px;
+      }
+      .action-buttons button {
+        padding: 6px;
+        font-size: 12px;
+      }
+      .action-buttons button.done {
+        background: #1f7a4d;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font: inherit;
+      }
+      button {
+        width: 100%;
+        padding: 8px;
+        border: none;
+        border-radius: 6px;
+        background: #1f4dbf;
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+      }
+      button.secondary {
+        background: #eee;
+        color: #333;
+        margin-top: 6px;
+      }
+      .error {
+        color: #b00020;
+        margin-bottom: 8px;
+      }
+      .status {
+        margin-bottom: 10px;
+      }
+      details {
+        margin-top: 12px;
+      }
+      details input {
+        margin-top: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Comitai — LinkedIn Sync</h1>
+
+    <div id="loggedOutView" hidden>
+      <div id="loginError" class="error" hidden></div>
+      <input id="email" type="email" placeholder="E-mail" autocomplete="username" />
+      <input
+        id="password"
+        type="password"
+        placeholder="Senha"
+        autocomplete="current-password"
+      />
+      <button id="loginButton">Entrar</button>
+    </div>
+
+    <div id="loggedInView" hidden>
+      <div class="status">Conectado como <strong id="userEmail"></strong></div>
+      <button id="logoutButton" class="secondary">Sair</button>
+
+      <h2>Ações pendentes no LinkedIn</h2>
+      <div id="pendingActionsEmpty" class="muted" hidden>
+        Nenhuma ação pendente.
+      </div>
+      <div id="pendingActionsList"></div>
+    </div>
+
+    <details>
+      <summary>Configurações</summary>
+      <input
+        id="apiBase"
+        type="text"
+        placeholder="URL da API (ex: http://localhost:3001/v1)"
+      />
+      <button id="saveApiBase" class="secondary">Salvar</button>
+    </details>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

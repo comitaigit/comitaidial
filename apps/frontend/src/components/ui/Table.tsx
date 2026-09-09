@@ -1,4 +1,9 @@
-import type { ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react";
+import type {
+  HTMLAttributes,
+  ReactNode,
+  TdHTMLAttributes,
+  ThHTMLAttributes,
+} from "react";
 import { cn } from "@/lib/cn";
 
 export function Table({ children }: { children: ReactNode }) {
@@ -21,10 +26,10 @@ export function Tr({
   children,
   clickable = false,
   className,
-}: {
+  ...props
+}: HTMLAttributes<HTMLTableRowElement> & {
   children: ReactNode;
   clickable?: boolean;
-  className?: string;
 }) {
   return (
     <tr
@@ -33,6 +38,7 @@ export function Tr({
         clickable && "cursor-pointer hover:bg-[#fafbfc]",
         className
       )}
+      {...props}
     >
       {children}
     </tr>

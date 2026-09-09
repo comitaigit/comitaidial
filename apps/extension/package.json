@@ -1,0 +1,6 @@
+{
+  "name": "comitai-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Comitai LinkedIn Sync — Chrome/Chromium extension (Manifest V3), no build step."
+}

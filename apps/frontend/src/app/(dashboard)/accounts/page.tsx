@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { getAccounts } from "@/features/accounts/data/accounts";
-import { AccountsTable } from "@/features/accounts/components/AccountsTable";
+import { AccountsPageContent } from "@/features/accounts/components/AccountsPageContent";
 import { NewAccountButton } from "@/features/accounts/components/NewAccountButton";
 import { ImportAccountsButton } from "@/features/accounts/components/ImportAccountsButton";
 
@@ -9,9 +8,10 @@ export const metadata: Metadata = {
   title: "Accounts",
 };
 
-export default async function AccountsPage() {
-  const accounts = await getAccounts();
-
+// Client-fetched, not server-fetched: /accounts requires the Bearer access
+// token, which only ever lives in the client-side session store (never a
+// cookie the server could read) — see accounts-api.ts's header comment.
+export default function AccountsPage() {
   return (
     <section>
       <PageHeader
@@ -24,7 +24,7 @@ export default async function AccountsPage() {
           </>
         }
       />
-      <AccountsTable accounts={accounts} />
+      <AccountsPageContent />
     </section>
   );
 }

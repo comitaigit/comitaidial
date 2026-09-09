@@ -10,37 +10,32 @@ export function SidebarBrand({
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5 px-2 pb-5 pt-1",
-        collapsed ? "justify-center" : "justify-start"
+        "flex shrink-0 items-center gap-2 border-b border-[#1e1e1e] px-[18px] pb-[18px] pt-5",
+        collapsed ? "justify-center px-3" : "justify-start",
       )}
     >
       <button
         onClick={onToggle}
         aria-label={collapsed ? "Expandir menu" : "Encolher menu"}
-        className="group relative grid h-8.5 w-8.5 shrink-0 cursor-pointer place-items-center rounded-[9px] bg-white font-black text-[#111]"
+        className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-[6px] bg-[#2563EB]"
       >
-        <span className="transition-opacity duration-150 group-hover:opacity-0">
-          C
-        </span>
-        <span
-          aria-hidden
-          className="absolute text-base opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-        >
-          {collapsed ? "»" : "«"}
-        </span>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="2.4" fill="white" />
+          <circle cx="12" cy="3.5" r="1.5" fill="white" opacity=".5" />
+          <circle cx="12" cy="10.5" r="1.5" fill="white" opacity=".5" />
+          <line x1="9.3" y1="5.6" x2="10.7" y2="4.3" stroke="white" strokeWidth="1.1" opacity=".5" strokeLinecap="round" />
+          <line x1="9.3" y1="8.4" x2="10.7" y2="9.7" stroke="white" strokeWidth="1.1" opacity=".5" strokeLinecap="round" />
+        </svg>
       </button>
       <div
         className={cn(
           "overflow-hidden transition-[max-width,opacity] duration-200 ease-in-out",
-          collapsed ? "max-w-0 opacity-0" : "max-w-40 opacity-100"
+          collapsed ? "max-w-0 opacity-0" : "max-w-40 opacity-100",
         )}
       >
-        <b className="whitespace-nowrap text-[15px] tracking-tight">
+        <b className="block whitespace-nowrap text-[13px] font-bold tracking-tight text-white">
           Comitai Dialer
         </b>
-        <small className="mt-0.5 block whitespace-nowrap text-[11px] text-[#9ca3af]">
-          V0 · low fidelity
-        </small>
       </div>
     </div>
   );
