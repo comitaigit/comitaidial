@@ -50,6 +50,7 @@ model Tenant {
   assistantConversations AssistantConversation[]
   assistantProposals     AssistantProposal[]
   hubspotConnection      HubSpotConnection?
+  accountDiscoveryJobs   AccountDiscoveryJob[]
 
   /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
   /// debited only when a provider call actually fills a gap, never on a
@@ -756,6 +757,40 @@ model ProspectingJob {
   @@index([tenantId])
   @@index([accountId])
   @@map("prospecting_jobs")
+}
+
+// --- AI Prospecting (variant B: discover new Accounts via lookalike) ---
+// Unlike variant A (find a contact at an Account we already have), this
+// discovers entirely new companies — seeded by a set of existing Accounts
+// the BDR considers good-fit (Lusha's lookalike API requires 5-100 seed
+// companies, so there's no single-account "find similar" shape; the ICP
+// here is implicitly whatever the chosen seeds have in common, rather than
+// a separate configured field). Pay-per-result: credits charged equal the
+// number of new Accounts actually created, not a flat per-call cost.
+model AccountDiscoveryJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// The Accounts used as lookalike seeds for this run.
+  seedAccountIds String[]
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS.
+  creditsCharged Int @default(0)
+
+  /// The new Accounts this job created.
+  createdAccountIds String[] @default([])
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("account_discovery_jobs")
 }
 
 // --- Assistente ---

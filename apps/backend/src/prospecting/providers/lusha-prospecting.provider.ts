@@ -4,6 +4,8 @@ import { EnrichmentProviderName } from '@prisma/client';
 import {
   ContactSearchInput,
   ContactSearchResult,
+  LookalikeCompaniesInput,
+  LookalikeCompanyResult,
   ProspectingProvider,
 } from '../prospecting-provider.interface';
 
@@ -98,5 +100,44 @@ export class LushaProspectingProvider implements ProspectingProvider {
       phone: revealed?.data?.phoneNumbers?.[0]?.internationalNumber,
       linkedinUrl: revealed?.data?.linkedinUrl,
     };
+  }
+
+  // [PRECISA SER VALIDADO] Same caveat as searchContact above — the
+  // requirement that Lusha's lookalike search needs 5-100 seed companies
+  // (enforced in ProspectingService before this is ever called) is
+  // corroborated by this project's own Lusha MCP connector tool
+  // description; the exact endpoint path and response field names below
+  // are not, and need confirming against a real API key.
+  async findLookalikeCompanies(
+    input: LookalikeCompaniesInput,
+  ): Promise<LookalikeCompanyResult[]> {
+    const body = {
+      seeds: { domains: input.seedDomains },
+      exclude: input.excludeDomains.length
+        ? { domains: input.excludeDomains }
+        : undefined,
+      limit: input.limit,
+    };
+
+    const response = await fetch(`${BASE_URL}/prospecting/company/lookalike`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Lusha lookalike companies failed: HTTP ${response.status} ${await response.text()}`,
+      );
+    }
+
+    const json = (await response.json()) as {
+      results?: Array<{ name?: string; domain?: string; industry?: string }>;
+    };
+
+    return (json.results ?? []).map((r) => ({
+      name: r.name ?? '',
+      domain: r.domain,
+      segment: r.industry,
+    }));
   }
 }
