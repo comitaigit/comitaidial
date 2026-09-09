@@ -22,6 +22,7 @@ import { EnrichmentModule } from './enrichment/enrichment.module';
 import { ProspectingModule } from './prospecting/prospecting.module';
 import { AssistantModule } from './assistant/assistant.module';
 import { HubSpotModule } from './hubspot/hubspot.module';
+import { LinkedInModule } from './linkedin/linkedin.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -57,6 +58,7 @@ import { validateEnv } from './config/env.validation';
     ProspectingModule,
     AssistantModule,
     HubSpotModule,
+    LinkedInModule,
   ],
   controllers: [AppController],
   providers: [
