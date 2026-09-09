@@ -45,6 +45,13 @@ model Tenant {
   stepExecutions     StepExecution[]
   actions            Action[]
   googleAccounts     GoogleAccount[]
+  enrichmentJobs     EnrichmentJob[]
+
+  /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
+  /// debited only when a provider call actually fills a gap, never on a
+  /// miss or error. No billing/checkout exists yet; an ADMIN tops this up
+  /// via POST /v1/enrichment/credits/grant until one does.
+  enrichmentCreditBalance Int @default(0)
 
   @@map("tenants")
 }
@@ -188,6 +195,7 @@ model Account {
   tasks          Task[]
   research       AccountResearch[]
   prospectEvents ProspectEvent[]
+  enrichmentJobs EnrichmentJob[]
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -231,6 +239,7 @@ model Person {
   tasks              Task[]
   prospectEvents     ProspectEvent[]
   actions            Action[]
+  enrichmentJobs     EnrichmentJob[]
 
   @@index([tenantId])
   @@index([accountId])
@@ -602,6 +611,61 @@ model GoogleAccount {
 
   @@index([tenantId])
   @@map("google_accounts")
+}
+
+// --- Data Enrichment ---
+// Pay-per-result billing (adopted from evaluating TexAu's model, 2026-09):
+// a provider call that comes back empty or errors costs the tenant nothing
+// — only a call that actually fills a data gap debits enrichmentCreditBalance.
+// One job per provider call, kept as an audit trail rather than only a
+// running balance, so "why did our credits drop" is always answerable.
+
+enum EnrichmentProviderName {
+  LUSHA
+}
+
+enum EnrichmentJobStatus {
+  /// Provider returned at least one field this record didn't already have.
+  SUCCESS
+  /// Provider call succeeded but had nothing new to add.
+  NO_MATCH
+  /// Provider call itself failed (network, auth, rate limit, ...).
+  FAILED
+}
+
+model EnrichmentJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Exactly one of personId/accountId is set — a job enriches either a
+  /// contact (email/phone) or a company (domain/segment), never both.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS — see the pay-per-result note above.
+  creditsCharged Int @default(0)
+
+  /// Which fields were actually filled (e.g. ["email", "phone"]) — empty
+  /// for NO_MATCH/FAILED. Kept as Json rather than a join table since it's
+  /// display/audit-only, never queried by field name.
+  fieldsFilled Json?
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([personId])
+  @@index([accountId])
+  @@map("enrichment_jobs")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome

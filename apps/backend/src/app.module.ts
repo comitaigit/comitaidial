@@ -18,6 +18,7 @@ import { GoalsModule } from './goals/goals.module';
 import { ClientCompaniesModule } from './client-companies/client-companies.module';
 import { PlayEngineModule } from './play-engine/play-engine.module';
 import { GmailModule } from './gmail/gmail.module';
+import { EnrichmentModule } from './enrichment/enrichment.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -49,6 +50,7 @@ import { validateEnv } from './config/env.validation';
     ClientCompaniesModule,
     PlayEngineModule,
     GmailModule,
+    EnrichmentModule,
   ],
   controllers: [AppController],
   providers: [

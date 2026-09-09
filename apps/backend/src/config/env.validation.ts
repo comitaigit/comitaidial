@@ -148,6 +148,13 @@ class EnvironmentVariables {
     message: 'TOKEN_ENCRYPTION_KEY must be 64 hex characters (32 bytes).',
   })
   TOKEN_ENCRYPTION_KEY!: string;
+
+  // Data Enrichment provider — app.lusha.com → Settings → API. See
+  // src/enrichment/providers/lusha.provider.ts for a caveat: the exact
+  // request/response shape there is unverified against Lusha's live docs.
+  @IsString()
+  @IsNotEmpty()
+  LUSHA_API_KEY!: string;
 }
 
 /**
