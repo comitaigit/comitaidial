@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import {
   ActionStatus,
@@ -96,6 +96,71 @@ export class PlayEngineService {
         occurredAt: dto.occurredAt ?? new Date(),
       },
     });
+  }
+
+  /// AI-authored Actions a cadence's approvalMode (MANUAL, the default)
+  /// held back from PENDING — see createAction. Scoped to the BDR who
+  /// enrolled the contact (stepExecution.enrollment.enrolledById), same
+  /// ownership rule as the LinkedIn pending-actions queue and AI Email:
+  /// this is content authored on their behalf, so they're the one who
+  /// reviews it.
+  listPendingApproval(userId: string, tenantId: string) {
+    return this.prisma.action.findMany({
+      where: {
+        tenantId,
+        status: ActionStatus.PENDING_APPROVAL,
+        stepExecution: { enrollment: { enrolledById: userId } },
+      },
+      orderBy: { createdAt: 'asc' },
+      include: { person: { select: { id: true, name: true } } },
+    });
+  }
+
+  /// Moves an Action from PENDING_APPROVAL to PENDING — from there it's
+  /// dispatched exactly like an approvalMode=FULL action would be
+  /// (dispatchEmailActions on the next tick, or the LinkedIn pending-
+  /// actions queue), never a separate code path.
+  async approveAction(id: string, userId: string, tenantId: string) {
+    const action = await this.getOwnedPendingApprovalAction(
+      id,
+      userId,
+      tenantId,
+    );
+    return this.prisma.action.update({
+      where: { id: action.id },
+      data: { status: ActionStatus.PENDING },
+    });
+  }
+
+  async rejectAction(id: string, userId: string, tenantId: string) {
+    const action = await this.getOwnedPendingApprovalAction(
+      id,
+      userId,
+      tenantId,
+    );
+    return this.prisma.action.update({
+      where: { id: action.id },
+      data: { status: ActionStatus.CANCELLED, executedAt: new Date() },
+    });
+  }
+
+  private async getOwnedPendingApprovalAction(
+    id: string,
+    userId: string,
+    tenantId: string,
+  ) {
+    const action = await this.prisma.action.findFirst({
+      where: {
+        id,
+        tenantId,
+        status: ActionStatus.PENDING_APPROVAL,
+        stepExecution: { enrollment: { enrolledById: userId } },
+      },
+    });
+    if (!action) {
+      throw new NotFoundException('Ação não encontrada ou já resolvida.');
+    }
+    return action;
   }
 
   /// One full pass of the engine. Split into phases rather than one big
