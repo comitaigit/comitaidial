@@ -1,4 +1,11 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 // Every field optional — a PATCH edits only what's sent.
 export class UpdateClientCompanyDto {
@@ -18,4 +25,11 @@ export class UpdateClientCompanyDto {
   @IsOptional()
   @MaxLength(1000)
   positioning?: string;
+
+  // ICP gate for AI Prospecting — see schema.prisma's comment on this field.
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  @ArrayMaxSize(20)
+  targetRoles?: string[];
 }

@@ -38,7 +38,10 @@ export class EnrichmentService {
     return tenant.enrichmentCreditBalance;
   }
 
-  private async assertHasCredits(tenantId: string): Promise<void> {
+  // Public: ProspectingService shares this same credit pool (both spend
+  // against Tenant.enrichmentCreditBalance) and calls this before its own
+  // provider search, rather than duplicating the balance check/message.
+  async assertHasCredits(tenantId: string): Promise<void> {
     const balance = await this.getCreditBalance(tenantId);
     if (balance <= 0) {
       throw new HttpException(

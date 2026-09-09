@@ -46,6 +46,7 @@ model Tenant {
   actions            Action[]
   googleAccounts     GoogleAccount[]
   enrichmentJobs     EnrichmentJob[]
+  prospectingJobs    ProspectingJob[]
 
   /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
   /// debited only when a provider call actually fills a gap, never on a
@@ -193,9 +194,10 @@ model Account {
   signals        Signal[]
   activities     Activity[]
   tasks          Task[]
-  research       AccountResearch[]
-  prospectEvents ProspectEvent[]
-  enrichmentJobs EnrichmentJob[]
+  research        AccountResearch[]
+  prospectEvents  ProspectEvent[]
+  enrichmentJobs  EnrichmentJob[]
+  prospectingJobs ProspectingJob[]
 
   @@unique([tenantId, domain])
   @@index([tenantId])
@@ -240,6 +242,7 @@ model Person {
   prospectEvents     ProspectEvent[]
   actions            Action[]
   enrichmentJobs     EnrichmentJob[]
+  prospectingJobs    ProspectingJob[]
 
   @@index([tenantId])
   @@index([accountId])
@@ -276,11 +279,19 @@ model ClientCompany {
   /// a sharper battlecard. Optional; the prompt works with just name+product.
   positioning String?
 
+  /// Job titles/role keywords that count as ICP fit for this product (e.g.
+  /// ["Diretor Comercial", "VP Sales"]) — the basic ICP question AI
+  /// Prospecting requires an answer to before it spends a provider credit
+  /// searching for a contact (founder's rule, 2026-09). Empty means
+  /// prospecting isn't configured yet for this ClientCompany.
+  targetRoles String[] @default([])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   cadences        Cadence[]
   accountResearch AccountResearch[]
+  prospectingJobs ProspectingJob[]
 
   @@index([tenantId])
   @@map("client_companies")
@@ -666,6 +677,45 @@ model EnrichmentJob {
   @@index([personId])
   @@index([accountId])
   @@map("enrichment_jobs")
+}
+
+// --- AI Prospecting (variant A: find the right contact at a known Account) ---
+// Searches a provider for a person matching ClientCompany.targetRoles at an
+// Account that already exists in Comitai — this is the "who's the right
+// buyer here" step, distinct from EnrichmentJob (which fills gaps on a
+// contact/company we already have). Shares the same credit pool
+// (Tenant.enrichmentCreditBalance) and pay-per-result policy: a search
+// that finds nobody or errors costs nothing.
+model ProspectingJob {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  clientCompanyId String
+  clientCompany   ClientCompany @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+
+  provider EnrichmentProviderName
+  status   EnrichmentJobStatus
+
+  /// 0 unless status = SUCCESS.
+  creditsCharged Int @default(0)
+
+  /// The Person created from this search, when status = SUCCESS. Nullable
+  /// (not required) so the row survives if that Person is later deleted.
+  personId String?
+  person   Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([accountId])
+  @@map("prospecting_jobs")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome

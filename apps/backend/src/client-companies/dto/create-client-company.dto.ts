@@ -1,4 +1,11 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateClientCompanyDto {
   @IsString()
@@ -15,4 +22,11 @@ export class CreateClientCompanyDto {
   @IsOptional()
   @MaxLength(1000)
   positioning?: string;
+
+  // ICP gate for AI Prospecting — see schema.prisma's comment on this field.
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  @ArrayMaxSize(20)
+  targetRoles?: string[];
 }
