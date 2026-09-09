@@ -32,4 +32,11 @@ export class UpdatePersonDto {
   @IsEnum(InfluenceLevel)
   @IsOptional()
   influenceLevel?: InfluenceLevel;
+
+  // Links this Person to a contact in the tenant's own HubSpot account —
+  // set manually, no fuzzy matching. See src/hubspot/hubspot.service.ts.
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  hubspotContactId?: string;
 }

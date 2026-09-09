@@ -49,6 +49,7 @@ model Tenant {
   prospectingJobs        ProspectingJob[]
   assistantConversations AssistantConversation[]
   assistantProposals     AssistantProposal[]
+  hubspotConnection      HubSpotConnection?
 
   /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
   /// debited only when a provider call actually fills a gap, never on a
@@ -191,6 +192,11 @@ model Account {
   /// transcript data, per the founder's rule captured 2026-08-21.
   pain String?
 
+  /// Set by the rep when this account is already a HubSpot company in the
+  /// tenant's own HubSpot account — read-only, no fuzzy matching (see
+  /// HubSpotService). Null means "not linked".
+  hubspotCompanyId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -234,6 +240,11 @@ model Person {
   /// Manual, set by the rep — decisor financeiro / influenciador direto /
   /// decisor operacional / influenciador indireto.
   influenceLevel InfluenceLevel?
+
+  /// Set by the rep when this contact is already a HubSpot contact in the
+  /// tenant's own HubSpot account — read-only, no fuzzy matching (see
+  /// HubSpotService). Null means "not linked".
+  hubspotContactId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -626,6 +637,31 @@ model GoogleAccount {
 
   @@index([tenantId])
   @@map("google_accounts")
+}
+
+// --- HubSpot (read-only) ---
+// One connection per tenant, not per BDR — HubSpot is the tenant's shared
+// CRM, unlike Gmail which is personal per BDR. Uses a HubSpot Private App
+// token (pasted by an admin from their own HubSpot Settings → Integrations
+// → Private Apps) rather than OAuth: a public OAuth app would need HubSpot
+// to review and list it, which is unnecessary friction for a single-tenant-
+// at-a-time read integration. Person.hubspotContactId / Account.
+// hubspotCompanyId are set manually by the rep — no fuzzy identity
+// matching, per the build-order decision (2026-09).
+model HubSpotConnection {
+  id String @id @default(uuid())
+
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// AES-256-GCM ciphertext (see EncryptionService) — reversible like the
+  /// Gmail refresh token, since every read calls the HubSpot API live.
+  encryptedAccessToken String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("hubspot_connections")
 }
 
 // --- Data Enrichment ---

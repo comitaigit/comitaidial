@@ -7,8 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { google } from 'googleapis';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EncryptionService } from '../common/encryption/encryption.service';
 
 // Gmail-send only — no read/modify scope, since AI Email only ever sends,
 // never inspects the BDR's inbox. userinfo.email identifies which address
@@ -19,7 +19,6 @@ const SCOPES = [
 ];
 
 const STATE_TTL = '10m';
-const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
 type OAuthState = {
   userId: string;
@@ -37,18 +36,13 @@ function encodeMimeSubject(subject: string): string {
 @Injectable()
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
-  private readonly encryptionKey: Buffer;
 
   constructor(
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
-  ) {
-    this.encryptionKey = Buffer.from(
-      this.config.getOrThrow<string>('TOKEN_ENCRYPTION_KEY'),
-      'hex',
-    );
-  }
+    private readonly encryption: EncryptionService,
+  ) {}
 
   private redirectUri(): string {
     return `${this.config.getOrThrow<string>('PUBLIC_API_URL')}/v1/gmail/callback`;
@@ -60,31 +54,6 @@ export class GmailService {
       this.config.getOrThrow<string>('GOOGLE_CLIENT_SECRET'),
       this.redirectUri(),
     );
-  }
-
-  private encrypt(plaintext: string): string {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
-    const ciphertext = Buffer.concat([
-      cipher.update(plaintext, 'utf-8'),
-      cipher.final(),
-    ]);
-    const authTag = cipher.getAuthTag();
-    return [iv, authTag, ciphertext].map((b) => b.toString('hex')).join(':');
-  }
-
-  private decrypt(encoded: string): string {
-    const [ivHex, authTagHex, ciphertextHex] = encoded.split(':');
-    const decipher = createDecipheriv(
-      ENCRYPTION_ALGORITHM,
-      this.encryptionKey,
-      Buffer.from(ivHex, 'hex'),
-    );
-    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-    return Buffer.concat([
-      decipher.update(Buffer.from(ciphertextHex, 'hex')),
-      decipher.final(),
-    ]).toString('utf-8');
   }
 
   // Signed rather than opaque: the browser is redirected to Google and back
@@ -152,12 +121,12 @@ export class GmailService {
         tenantId: parsed.tenantId,
         userId: parsed.userId,
         email: data.email,
-        encryptedRefreshToken: this.encrypt(tokens.refresh_token),
+        encryptedRefreshToken: this.encryption.encrypt(tokens.refresh_token),
         scope: tokens.scope ?? SCOPES.join(' '),
       },
       update: {
         email: data.email,
-        encryptedRefreshToken: this.encrypt(tokens.refresh_token),
+        encryptedRefreshToken: this.encryption.encrypt(tokens.refresh_token),
         scope: tokens.scope ?? SCOPES.join(' '),
       },
     });
@@ -185,7 +154,9 @@ export class GmailService {
 
     try {
       const client = this.oauthClient();
-      await client.revokeToken(this.decrypt(account.encryptedRefreshToken));
+      await client.revokeToken(
+        this.encryption.decrypt(account.encryptedRefreshToken),
+      );
     } catch (err) {
       // Best-effort — Google may have already invalidated it independently.
       // Still remove our copy either way so a stale credential never lingers.
@@ -217,7 +188,7 @@ export class GmailService {
 
     const client = this.oauthClient();
     client.setCredentials({
-      refresh_token: this.decrypt(account.encryptedRefreshToken),
+      refresh_token: this.encryption.decrypt(account.encryptedRefreshToken),
     });
 
     const message = [

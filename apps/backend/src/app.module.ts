@@ -21,6 +21,7 @@ import { GmailModule } from './gmail/gmail.module';
 import { EnrichmentModule } from './enrichment/enrichment.module';
 import { ProspectingModule } from './prospecting/prospecting.module';
 import { AssistantModule } from './assistant/assistant.module';
+import { HubSpotModule } from './hubspot/hubspot.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -55,6 +56,7 @@ import { validateEnv } from './config/env.validation';
     EnrichmentModule,
     ProspectingModule,
     AssistantModule,
+    HubSpotModule,
   ],
   controllers: [AppController],
   providers: [
