@@ -53,6 +53,16 @@ interface EmailPayload {
   [key: string]: unknown;
 }
 
+interface LinkedInMessagePayload {
+  message: string;
+  [key: string]: unknown;
+}
+
+interface LinkedInConnectPayload {
+  note?: string;
+  [key: string]: unknown;
+}
+
 /// The Play Engine: a poll loop that turns a Cadence's steps from a
 /// template a human reads into something that actually runs. It only ever
 /// makes deterministic decisions (did the deadline pass? did the expected
@@ -266,6 +276,7 @@ export class PlayEngineService {
       await this.seedNextStep(
         execution.enrollment,
         execution.cadenceStep.order,
+        execution.cadenceStep.waitForConnectionAccepted,
       );
     }
   }
@@ -287,10 +298,9 @@ export class PlayEngineService {
     const config =
       (execution.cadenceStep.actionConfig as ActionConfig | null) ?? {};
 
-    const payload: Record<string, unknown> =
-      config.generateWithAI && type === ActionType.SEND_EMAIL
-        ? await this.generateEmailContent(execution, config.prompt)
-        : (config.static ?? {});
+    const payload: Record<string, unknown> = config.generateWithAI
+      ? await this.generateContent(execution, type, config.prompt)
+      : (config.static ?? {});
 
     const requiresApproval =
       !!config.generateWithAI &&
@@ -311,9 +321,58 @@ export class PlayEngineService {
     });
   }
 
-  // Authors the actual subject/body at Action-creation time (not at
-  // dispatch) so a BDR reviewing a PENDING_APPROVAL action sees real
-  // content, not a placeholder — see the ApprovalMode gate right above.
+  private buildProspectContext(
+    execution: Prisma.StepExecutionGetPayload<{
+      include: {
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
+    }>,
+  ) {
+    const person = execution.enrollment.person;
+    const account = person.account;
+    const clientCompany = execution.enrollment.cadence.clientCompany;
+    const productContext = clientCompany
+      ? `${clientCompany.name}: ${clientCompany.mainProduct}.${
+          clientCompany.positioning ? ` ${clientCompany.positioning}` : ''
+        }`
+      : 'Produto não configurado — escreva de forma genérica.';
+    return { person, account, productContext };
+  }
+
+  // Authors the actual content at Action-creation time (not at dispatch)
+  // so a BDR reviewing a PENDING_APPROVAL action sees real content, not a
+  // placeholder — see the ApprovalMode gate right above.
+  private generateContent(
+    execution: Prisma.StepExecutionGetPayload<{
+      include: {
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
+    }>,
+    type: ActionType,
+    stepInstruction: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    switch (type) {
+      case ActionType.SEND_EMAIL:
+        return this.generateEmailContent(execution, stepInstruction);
+      case ActionType.LINKEDIN_MESSAGE:
+        return this.generateLinkedInMessageContent(execution, stepInstruction);
+      case ActionType.LINKEDIN_CONNECT:
+        return this.generateLinkedInConnectContent(execution, stepInstruction);
+      case ActionType.ENRICH:
+        return Promise.resolve({});
+    }
+  }
+
   private async generateEmailContent(
     execution: Prisma.StepExecutionGetPayload<{
       include: {
@@ -327,14 +386,8 @@ export class PlayEngineService {
     }>,
     stepInstruction: string | undefined,
   ): Promise<EmailPayload> {
-    const person = execution.enrollment.person;
-    const account = person.account;
-    const clientCompany = execution.enrollment.cadence.clientCompany;
-    const productContext = clientCompany
-      ? `${clientCompany.name}: ${clientCompany.mainProduct}.${
-          clientCompany.positioning ? ` ${clientCompany.positioning}` : ''
-        }`
-      : 'Produto não configurado — escreva de forma genérica.';
+    const { person, account, productContext } =
+      this.buildProspectContext(execution);
 
     const prompt = `Você é um BDR de vendas B2B escrevendo um e-mail de prospecção outbound em português.
 
@@ -354,6 +407,74 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
           ? json.body
           : 'Não foi possível gerar o conteúdo deste e-mail.',
     };
+  }
+
+  private async generateLinkedInMessageContent(
+    execution: Prisma.StepExecutionGetPayload<{
+      include: {
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
+    }>,
+    stepInstruction: string | undefined,
+  ): Promise<LinkedInMessagePayload> {
+    const { person, account, productContext } =
+      this.buildProspectContext(execution);
+
+    const prompt = `Você é um BDR de vendas B2B escrevendo uma mensagem de LinkedIn (não e-mail) em português.
+
+Produto sendo vendido: ${productContext}
+Destinatário: ${person.name}${person.role ? `, cargo "${person.role}"` : ''}, na empresa "${account.name}".
+Instrução para esta mensagem específica: ${stepInstruction ?? 'Escreva uma mensagem curta e direta, tom de LinkedIn (mais informal que e-mail), terminando com uma pergunta de baixo esforço.'}
+
+Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON), exatamente neste formato:
+{"message": "mensagem em texto simples, sem markdown, no máximo 80 palavras"}`;
+
+    const json = await this.ai.completeJson({ prompt, maxTokens: 400 });
+    return {
+      message:
+        typeof json.message === 'string'
+          ? json.message
+          : 'Não foi possível gerar esta mensagem.',
+    };
+  }
+
+  // A LinkedIn connection note is optional and capped at 300 characters by
+  // LinkedIn itself — enforced here too, not just left to the prompt.
+  private async generateLinkedInConnectContent(
+    execution: Prisma.StepExecutionGetPayload<{
+      include: {
+        enrollment: {
+          include: {
+            person: { include: { account: true } };
+            cadence: { include: { clientCompany: true } };
+          };
+        };
+      };
+    }>,
+    stepInstruction: string | undefined,
+  ): Promise<LinkedInConnectPayload> {
+    const { person, account, productContext } =
+      this.buildProspectContext(execution);
+
+    const prompt = `Você é um BDR de vendas B2B escrevendo a nota opcional de um convite de conexão no LinkedIn, em português.
+
+Produto sendo vendido: ${productContext}
+Destinatário: ${person.name}${person.role ? `, cargo "${person.role}"` : ''}, na empresa "${account.name}".
+Instrução: ${stepInstruction ?? 'Escreva uma nota breve e genuína, sem tom de venda direta, explicando por que você quer se conectar.'}
+Limite rígido do LinkedIn: no máximo 300 caracteres.
+
+Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON), exatamente neste formato:
+{"note": "nota em texto simples, sem markdown, no máximo 300 caracteres"}`;
+
+    const json = await this.ai.completeJson({ prompt, maxTokens: 200 });
+    const note =
+      typeof json.note === 'string' ? json.note.slice(0, 300) : undefined;
+    return note ? { note } : {};
   }
 
   // SEND_EMAIL Actions that cleared approval (or never needed it) get
@@ -431,17 +552,27 @@ Responda APENAS com um objeto JSON válido (sem markdown, sem texto fora do JSON
       include: { cadence: { include: { steps: true } } };
     }>,
     completedOrder: number,
+    waitForConnectionAccepted: boolean,
   ) {
     const nextStep = enrollment.cadence.steps.find(
       (step) => step.order === completedOrder + 1,
     );
     if (!nextStep) return;
 
+    // The completed step's own gate overrides the next step's configured
+    // trigger — see CadenceStep.waitForConnectionAccepted's schema comment:
+    // "don't advance ... until the connection request is accepted". There's
+    // no LinkedIn webhook for this; the ProspectEvent only ever arrives via
+    // the browser extension observing the profile later (LinkedInService).
+    const trigger: TriggerConfig = waitForConnectionAccepted
+      ? { onEvent: 'linkedin.connection.accepted' }
+      : ((nextStep.triggerConfig as TriggerConfig | null) ?? {});
+
     await this.createExecutionForStep(
       enrollment.tenantId,
       enrollment.id,
       nextStep.id,
-      (nextStep.triggerConfig as TriggerConfig | null) ?? {},
+      trigger,
       new Date(),
     );
   }

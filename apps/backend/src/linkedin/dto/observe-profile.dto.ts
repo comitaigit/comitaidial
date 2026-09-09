@@ -18,4 +18,12 @@ export class ObserveProfileDto {
   @IsOptional()
   @MaxLength(200)
   currentCompanyName?: string;
+
+  // '1st' | '2nd' | '3rd' — whatever badge text the page showed next to
+  // the name. Used only to detect a fresh "accepted" transition; anything
+  // else is ignored, so this doesn't need to be an enum.
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  connectionDegree?: string;
 }

@@ -28,11 +28,24 @@ function splitHeadline(headline) {
   return { role: match[1].trim(), company: match[2].trim() };
 }
 
+// LinkedIn shows a "1st"/"2nd"/"3rd" degree badge near the name for
+// accepted/pending/unconnected profiles — this is how item 11's "wait for
+// connection accepted" gate ever gets satisfied, since LinkedIn has no
+// webhook for it. `.dist-value` is the long-standing class for this badge;
+// unverified against a live page, same caveat as the rest of this file.
+function readConnectionDegree() {
+  const text = textOf('.dist-value');
+  if (!text) return null;
+  const match = /^(1st|2nd|3rd)$/i.exec(text.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
 function readProfile() {
   const name = textOf('h1.text-heading-xlarge') || textOf('h1');
   const headline = textOf('.text-body-medium.break-words');
   const { role, company } = splitHeadline(headline);
-  return { name, role, company, headline };
+  const connectionDegree = readConnectionDegree();
+  return { name, role, company, headline, connectionDegree };
 }
 
 function showBadge(text, ok) {
@@ -77,6 +90,7 @@ function syncCurrentProfile() {
         linkedinUrl: url,
         currentRole: profile.role || undefined,
         currentCompanyName: profile.company || undefined,
+        connectionDegree: profile.connectionDegree || undefined,
       },
     },
     (response) => {
@@ -95,6 +109,8 @@ function syncCurrentProfile() {
           `Comitai: ${result.changed === 'role' ? 'cargo' : 'empresa'} atualizado`,
           true,
         );
+      } else if (result.connectionJustAccepted) {
+        showBadge('Comitai: conexão aceita registrada', true);
       }
     },
   );

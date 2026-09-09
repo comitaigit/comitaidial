@@ -113,25 +113,26 @@ async function logout() {
   await clearAuth();
 }
 
-async function observeProfile(payload) {
+// Shared authenticated-request helper — one retry after a forced token
+// refresh on a 401 (the access token may have been invalidated elsewhere:
+// logout-all, reuse detection), then gives up rather than looping.
+async function authenticatedFetch(path, options = {}) {
   let token = await getValidAccessToken();
   if (!token) return { success: false, error: 'not_authenticated' };
 
   const apiBase = await getApiBase();
   const doFetch = (accessToken) =>
-    fetch(`${apiBase}/linkedin/observe`, {
-      method: 'POST',
+    fetch(`${apiBase}${path}`, {
+      ...options,
       headers: {
-        'Content-Type': 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(payload),
     });
 
   let res = await doFetch(token);
   if (res.status === 401) {
-    // The access token may have been invalidated elsewhere (logout-all,
-    // reuse detection) — one retry after a forced refresh, then give up.
     token = await refreshAccessToken();
     if (!token) return { success: false, error: 'not_authenticated' };
     res = await doFetch(token);
@@ -141,7 +142,31 @@ async function observeProfile(payload) {
     const body = await res.json().catch(() => ({}));
     return { success: false, error: body.message || `HTTP ${res.status}` };
   }
-  return { success: true, result: await res.json() };
+  const result = res.status === 204 ? null : await res.json().catch(() => null);
+  return { success: true, result };
+}
+
+function observeProfile(payload) {
+  return authenticatedFetch('/linkedin/observe', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+function getPendingLinkedInActions() {
+  return authenticatedFetch('/linkedin/actions/pending', { method: 'GET' });
+}
+
+function completeLinkedInAction(actionId) {
+  return authenticatedFetch(`/linkedin/actions/${actionId}/complete`, {
+    method: 'POST',
+  });
+}
+
+function skipLinkedInAction(actionId) {
+  return authenticatedFetch(`/linkedin/actions/${actionId}/skip`, {
+    method: 'POST',
+  });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -168,6 +193,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       case 'OBSERVE_PROFILE':
         sendResponse(await observeProfile(message.payload));
+        break;
+      case 'GET_PENDING_LINKEDIN_ACTIONS':
+        sendResponse(await getPendingLinkedInActions());
+        break;
+      case 'COMPLETE_LINKEDIN_ACTION':
+        sendResponse(await completeLinkedInAction(message.actionId));
+        break;
+      case 'SKIP_LINKEDIN_ACTION':
+        sendResponse(await skipLinkedInAction(message.actionId));
         break;
       default:
         sendResponse({ success: false, error: 'unknown_message_type' });
