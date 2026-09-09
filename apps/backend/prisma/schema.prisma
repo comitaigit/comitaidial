@@ -27,26 +27,27 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users              User[]
-  accounts           Account[]
-  people             Person[]
-  cadences           Cadence[]
-  cadenceSteps       CadenceStep[]
-  cadenceEnrollments CadenceEnrollment[]
-  calls              Call[]
-  signals            Signal[]
-  activities         Activity[]
-  tasks              Task[]
-  accountResearch    AccountResearch[]
-  goals              Goal[]
-  clientCompanies    ClientCompany[]
-  dialBatches        DialBatch[]
-  prospectEvents     ProspectEvent[]
-  stepExecutions     StepExecution[]
-  actions            Action[]
-  googleAccounts     GoogleAccount[]
-  enrichmentJobs     EnrichmentJob[]
-  prospectingJobs    ProspectingJob[]
+  users                  User[]
+  accounts               Account[]
+  people                 Person[]
+  cadences               Cadence[]
+  cadenceSteps           CadenceStep[]
+  cadenceEnrollments     CadenceEnrollment[]
+  calls                  Call[]
+  signals                Signal[]
+  activities             Activity[]
+  tasks                  Task[]
+  accountResearch        AccountResearch[]
+  goals                  Goal[]
+  clientCompanies        ClientCompany[]
+  dialBatches            DialBatch[]
+  prospectEvents         ProspectEvent[]
+  stepExecutions         StepExecution[]
+  actions                Action[]
+  googleAccounts         GoogleAccount[]
+  enrichmentJobs         EnrichmentJob[]
+  prospectingJobs        ProspectingJob[]
+  assistantConversations AssistantConversation[]
 
   /// Pay-per-result balance for Data Enrichment (see EnrichmentService) —
   /// debited only when a provider call actually fills a gap, never on a
@@ -89,14 +90,15 @@ model User {
   createdAt DateTime @default(now()) @updatedAt
   updatedAt DateTime @updatedAt
 
-  refreshTokens      RefreshToken[]
-  loginEvents        LoginEvent[]
-  activities         Activity[]
-  calls              Call[]
-  goals              Goal[]
-  dialBatches        DialBatch[]
-  cadenceEnrollments CadenceEnrollment[]
-  googleAccount      GoogleAccount?
+  refreshTokens          RefreshToken[]
+  loginEvents            LoginEvent[]
+  activities             Activity[]
+  calls                  Call[]
+  goals                  Goal[]
+  dialBatches            DialBatch[]
+  cadenceEnrollments     CadenceEnrollment[]
+  googleAccount          GoogleAccount?
+  assistantConversations AssistantConversation[]
 
   @@index([tenantId])
   @@map("users")
@@ -190,10 +192,10 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  people         Person[]
-  signals        Signal[]
-  activities     Activity[]
-  tasks          Task[]
+  people          Person[]
+  signals         Signal[]
+  activities      Activity[]
+  tasks           Task[]
   research        AccountResearch[]
   prospectEvents  ProspectEvent[]
   enrichmentJobs  EnrichmentJob[]
@@ -716,6 +718,62 @@ model ProspectingJob {
   @@index([tenantId])
   @@index([accountId])
   @@map("prospecting_jobs")
+}
+
+// --- Assistente ---
+// A conversational, per-BDR assistant over Claude's native tool use.
+// Messages are stored as raw Anthropic content blocks (not just text) so a
+// tool_use/tool_result pair can be replayed verbatim on the next turn —
+// the Claude API's multi-turn tool-use contract requires the exact block
+// structure, not a re-derived summary. Item 6 (2026-09) ships only
+// auto-executing read-only tools; item 7 adds proposal tools, which never
+// auto-execute regardless of the cadence's ApprovalMode — same principle,
+// applied to a human chatting instead of a Play running unattended.
+model AssistantConversation {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// First user message, truncated — set once, shown in a conversation
+  /// list. Null until that first message is sent.
+  title String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AssistantMessage[]
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("assistant_conversations")
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+}
+
+model AssistantMessage {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role AssistantMessageRole
+
+  /// Anthropic.MessageParam['content'] verbatim — a string for a plain
+  /// user message, or the full content-block array (text/tool_use/
+  /// tool_result) for anything tool-use touched.
+  content Json
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@map("assistant_messages")
 }
 
 // Per the Dial spec (founder, 2026-08-24) — replaces the previous outcome

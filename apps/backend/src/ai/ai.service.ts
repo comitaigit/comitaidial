@@ -29,6 +29,14 @@ export interface AiCompleteParams {
   model?: AiModel;
 }
 
+export interface AiMessageParams {
+  system?: string;
+  messages: Anthropic.MessageParam[];
+  tools?: Anthropic.Tool[];
+  maxTokens: number;
+  model?: AiModel;
+}
+
 // Single Anthropic client for the whole backend — replaces the 4 separate
 // `new Anthropic()` instantiations that used to live in DialerService,
 // CallsService, OverviewService and TranscriptionService. Every feature
@@ -69,5 +77,25 @@ export class AiService {
   ): Promise<Record<string, unknown>> {
     const text = await this.complete(params);
     return extractJson(text);
+  }
+
+  // Raw multi-turn / tool-use surface — for callers (the Assistant) that
+  // need to drive their own agentic loop rather than a single prompt/reply.
+  // Returns the full Anthropic.Message so the caller can inspect
+  // stop_reason and content blocks (tool_use, text, ...) itself.
+  createMessage({
+    system,
+    messages,
+    tools,
+    maxTokens,
+    model = AiModel.OPUS,
+  }: AiMessageParams): Promise<Anthropic.Message> {
+    return this.client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages,
+      tools,
+    });
   }
 }

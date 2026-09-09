@@ -20,6 +20,7 @@ import { PlayEngineModule } from './play-engine/play-engine.module';
 import { GmailModule } from './gmail/gmail.module';
 import { EnrichmentModule } from './enrichment/enrichment.module';
 import { ProspectingModule } from './prospecting/prospecting.module';
+import { AssistantModule } from './assistant/assistant.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { validateEnv } from './config/env.validation';
@@ -53,6 +54,7 @@ import { validateEnv } from './config/env.validation';
     GmailModule,
     EnrichmentModule,
     ProspectingModule,
+    AssistantModule,
   ],
   controllers: [AppController],
   providers: [
