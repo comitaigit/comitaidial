@@ -97,3 +97,45 @@ export function importAccounts(
     body: JSON.stringify({ csv }),
   });
 }
+
+export type EnrichmentResult = {
+  status: "SUCCESS" | "NO_MATCH" | "FAILED";
+  creditsCharged: number;
+  fieldsFilled: string[];
+};
+
+export function enrichAccount(
+  accountId: string,
+  accessToken: string,
+): Promise<EnrichmentResult> {
+  return request<EnrichmentResult>(`/enrichment/accounts/${accountId}`, accessToken, {
+    method: "POST",
+  });
+}
+
+// Just enough of ClientCompany to populate the "empresa-cliente" picker in
+// the "buscar contato" flow — kept local to this slice rather than
+// importing from features/client-companies (feature slices don't reach
+// into each other's internals).
+export type ClientCompanyOption = { id: string; name: string };
+
+export function listClientCompanyOptions(accessToken: string): Promise<ClientCompanyOption[]> {
+  return request<ClientCompanyOption[]>("/client-companies", accessToken);
+}
+
+export type FindContactResult = {
+  person: { id: string; name: string } | null;
+  status: "SUCCESS" | "NO_MATCH" | "FAILED" | "ALREADY_EXISTS";
+  creditsCharged: number;
+};
+
+export function findContact(
+  accountId: string,
+  clientCompanyId: string,
+  accessToken: string,
+): Promise<FindContactResult> {
+  return request<FindContactResult>("/prospecting/find-contact", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ accountId, clientCompanyId }),
+  });
+}

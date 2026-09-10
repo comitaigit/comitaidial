@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHead, CardTitle, CardBody } from "@/components/ui/Card";
 import { OperationForm } from "@/features/settings/components/OperationForm";
 import { GoalsForm } from "@/features/settings/components/GoalsForm";
 import { ClientCompaniesCard } from "@/features/client-companies/components/ClientCompaniesCard";
+import { GmailConnectCard } from "@/features/gmail/components/GmailConnectCard";
+import { HubSpotConnectCard } from "@/features/hubspot/components/HubSpotConnectCard";
+import { EnrichmentCreditsCard } from "@/features/enrichment/components/EnrichmentCreditsCard";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -42,6 +46,14 @@ export default function SettingsPage() {
         <GoalsForm />
 
         <OperationForm />
+
+        <Suspense fallback={<Card padded>Carregando…</Card>}>
+          <GmailConnectCard />
+        </Suspense>
+
+        <HubSpotConnectCard />
+
+        <EnrichmentCreditsCard />
 
         <Card>
           <CardHead>
