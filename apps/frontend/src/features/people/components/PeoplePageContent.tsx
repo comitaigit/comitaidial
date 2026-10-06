@@ -4,10 +4,12 @@ import { PeopleTable } from "@/features/people/components/PeopleTable";
 import { BulkActionsBar } from "@/features/people/components/BulkActionsBar";
 import { usePeoplePage } from "@/features/people/hooks/usePeoplePage";
 import { usePeopleSelection } from "@/features/people/hooks/usePeopleSelection";
+import { usePeopleRowActions } from "@/features/people/hooks/usePeopleRowActions";
 
 export function PeoplePageContent() {
   const { people, isLoading, error } = usePeoplePage();
   const { selectedIds, toggle, selectAll, clear } = usePeopleSelection();
+  const { busyId, enrich } = usePeopleRowActions();
 
   if (isLoading) return <p className="text-sm text-muted">Carregando prospects…</p>;
   if (error) return <p className="text-sm text-bad">{error}</p>;
@@ -24,6 +26,8 @@ export function PeoplePageContent() {
         selectedIds={selectedIds}
         onToggle={toggle}
         onToggleAll={() => (allSelected ? clear() : selectAll(people.map((p) => p.id)))}
+        busyId={busyId}
+        onEnrich={enrich}
       />
     </>
   );

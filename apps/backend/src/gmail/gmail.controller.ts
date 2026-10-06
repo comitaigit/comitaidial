@@ -36,15 +36,15 @@ export class GmailController {
   ) {
     const frontendUrl = this.config.getOrThrow<string>('FRONTEND_URL');
     if (error || !code || !state) {
-      res.redirect(`${frontendUrl}/workspace/settings?gmail=error`);
+      res.redirect(`${frontendUrl}/settings?gmail=error`);
       return;
     }
 
     try {
       await this.gmail.handleCallback(code, state);
-      res.redirect(`${frontendUrl}/workspace/settings?gmail=connected`);
+      res.redirect(`${frontendUrl}/settings?gmail=connected`);
     } catch {
-      res.redirect(`${frontendUrl}/workspace/settings?gmail=error`);
+      res.redirect(`${frontendUrl}/settings?gmail=error`);
     }
   }
 

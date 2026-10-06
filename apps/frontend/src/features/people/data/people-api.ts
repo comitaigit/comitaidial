@@ -126,6 +126,21 @@ export type ImportPeopleResult = {
   errors: string[];
 };
 
+export type EnrichmentResult = {
+  status: "SUCCESS" | "NO_MATCH" | "FAILED";
+  creditsCharged: number;
+  fieldsFilled: string[];
+};
+
+export function enrichPerson(
+  personId: string,
+  accessToken: string,
+): Promise<EnrichmentResult> {
+  return request<EnrichmentResult>(`/enrichment/people/${personId}`, accessToken, {
+    method: "POST",
+  });
+}
+
 export function importPeople(
   csv: string,
   cadenceId: string | undefined,

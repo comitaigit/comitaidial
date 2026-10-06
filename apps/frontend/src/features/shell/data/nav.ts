@@ -21,6 +21,8 @@ export const NAV_GROUP2: NavItem[] = [
   { href: "/metrics", label: "KPI Targets", icon: "⌁" },
   { href: "/health", label: "Saúde dos canais", icon: "♡" },
   { href: "/accounts", label: "Accounts", icon: "▤" },
+  { href: "/approvals", label: "Aprovações", icon: "✓" },
+  { href: "/assistant", label: "Assistente IA", icon: "✦" },
   { href: "/settings", label: "Workspace", icon: "⚙" },
 ];
 

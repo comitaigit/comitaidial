@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/Card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/Table";
 import { PersonAvatar } from "@/components/ui/PersonAvatar";
+import { Button } from "@/components/ui/Button";
 import type { InfluenceLevel, Person } from "@/features/people/data/people-api";
 
 const INFLUENCE_LABEL: Record<InfluenceLevel, string> = {
@@ -25,11 +26,15 @@ export function PeopleTable({
   selectedIds,
   onToggle,
   onToggleAll,
+  busyId,
+  onEnrich,
 }: {
   people: Person[];
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
+  busyId: string | null;
+  onEnrich: (person: Person) => void;
 }) {
   const allSelected = people.length > 0 && selectedIds.size === people.length;
 
@@ -52,6 +57,7 @@ export function PeopleTable({
             <Th>LinkedIn</Th>
             <Th>Nível de influência</Th>
             <Th>Cadências</Th>
+            <Th>Ações</Th>
           </Tr>
         </Thead>
         <Tbody>
@@ -100,6 +106,15 @@ export function PeopleTable({
                 {person.influenceLevel ? INFLUENCE_LABEL[person.influenceLevel] : "—"}
               </Td>
               <Td>{cadencesFor(person)}</Td>
+              <Td>
+                <Button
+                  size="small"
+                  disabled={busyId === person.id}
+                  onClick={() => onEnrich(person)}
+                >
+                  Enriquecer
+                </Button>
+              </Td>
             </Tr>
           ))}
         </Tbody>

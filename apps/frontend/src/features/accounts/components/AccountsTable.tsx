@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/Card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/Table";
 import { Tag } from "@/components/ui/Tag";
+import { Button } from "@/components/ui/Button";
 import type { Account, AccountPriority } from "@/features/accounts/data/accounts-api";
 
 const PRIORITY_LABEL: Record<AccountPriority, string> = {
@@ -15,7 +16,17 @@ const PRIORITY_VARIANT: Record<AccountPriority, "bad" | "warn" | "default"> = {
   LOW: "default",
 };
 
-export function AccountsTable({ accounts }: { accounts: Account[] }) {
+export function AccountsTable({
+  accounts,
+  busyId,
+  onEnrich,
+  onFindContact,
+}: {
+  accounts: Account[];
+  busyId: string | null;
+  onEnrich: (account: Account) => void;
+  onFindContact: (account: Account) => void;
+}) {
   return (
     <Card>
       <Table>
@@ -26,11 +37,12 @@ export function AccountsTable({ accounts }: { accounts: Account[] }) {
             <Th>Prospects</Th>
             <Th>Prioridade</Th>
             <Th>Dor</Th>
+            <Th>Ações</Th>
           </Tr>
         </Thead>
         <Tbody>
           {accounts.map((account) => (
-            <Tr key={account.id} clickable>
+            <Tr key={account.id}>
               <Td>
                 <b>{account.name}</b>
                 {account.domain && (
@@ -49,6 +61,20 @@ export function AccountsTable({ accounts }: { accounts: Account[] }) {
                 )}
               </Td>
               <Td>{account.pain ?? "Não mapeada"}</Td>
+              <Td>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="small"
+                    disabled={busyId === account.id}
+                    onClick={() => onEnrich(account)}
+                  >
+                    Enriquecer
+                  </Button>
+                  <Button size="small" onClick={() => onFindContact(account)}>
+                    Buscar contato
+                  </Button>
+                </div>
+              </Td>
             </Tr>
           ))}
         </Tbody>
