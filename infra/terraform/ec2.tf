@@ -39,6 +39,48 @@ resource "aws_iam_role_policy_attachment" "ec2_ecr_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# Builds happen on the instance itself (it's arm64 like the images it runs, and
+# there's no CI/arm64 builder elsewhere yet), so it also needs to push to its
+# own environment's two ECR repos — scoped to just those, not the whole
+# registry. GetAuthorizationToken has no resource-level scoping in IAM.
+resource "aws_iam_role_policy" "ec2_ecr_push" {
+  name = "${local.name_prefix}-ecr-push"
+  role = aws_iam_role.ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+        ]
+        Resource = [
+          aws_ecr_repository.backend.arn,
+          aws_ecr_repository.frontend.arn,
+        ]
+      },
+    ]
+  })
+}
+
+# SSM Agent (preinstalled on Amazon Linux 2023) lets an operator run
+# commands on the instance — deploy.sh, prisma migrate — over HTTPS with
+# `aws ssm send-command`, without opening SSH or having an SSH client at all.
+resource "aws_iam_role_policy_attachment" "ec2_ssm" {
+  role       = aws_iam_role.ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 # Scoped to just this environment's own secrets — not every secret in the
 # account.
 resource "aws_iam_role_policy" "ec2_secrets_read" {
