@@ -124,8 +124,11 @@ docker push "$ECR_BACKEND:latest"
 
 # Enquanto enable_https=false, use http:// aqui; depois que o HTTPS estiver
 # ativo (ver seção DNS/HTTPS abaixo), rebuilde com https://.
+# IMPORTANTE: a URL termina em /v1 — o backend responde só sob esse prefixo e o
+# frontend concatena o caminho (ex: /auth/login) direto nesta base. Sem o /v1,
+# o app abre mas toda chamada à API dá "Cannot POST /auth/...".
 docker build --platform linux/arm64 -f apps/frontend/Dockerfile --target prod \
-  --build-arg NEXT_PUBLIC_API_URL="http://$API_DOMAIN" \
+  --build-arg NEXT_PUBLIC_API_URL="http://$API_DOMAIN/v1" \
   -t "$ECR_FRONTEND:latest" .
 docker push "$ECR_FRONTEND:latest"
 ```
@@ -211,7 +214,7 @@ sed -i 's|CORS_ORIGINS=http://dev.comitai.app|CORS_ORIGINS=https://dev.comitai.a
 (Troque `dev.comitai.app` por `comitai.app` se for `prod` — e em `prod`
 normalmente não se quer o `,http://localhost:3000` extra.)
 
-**5.** Rebuilde a imagem do frontend com `https://` no `NEXT_PUBLIC_API_URL`
+**5.** Rebuilde a imagem do frontend com `https://` (e o sufixo `/v1`) no `NEXT_PUBLIC_API_URL`
 (etapa 2), faça push, e rode `./deploy.sh` de novo — agora ele já escreve os
 valores HTTPS corretos no `backend.env` e reinicia os dois containers.
 
