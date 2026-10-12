@@ -12,9 +12,15 @@ terraform {
     }
   }
 
-  # State stored locally (terraform.tfstate) for now — not committed to git.
-  # Migrate to an S3 backend if/when more than one person needs to run
-  # Terraform against this infra.
+  # State lives in a private, versioned S3 bucket (it holds generated secrets
+  # — DB password, JWT keys — so it must never sit only on someone's laptop or
+  # in git). The bucket name isn't hardcoded; pass it at init time:
+  #   terraform init -backend-config="bucket=comitai-tfstate-<aws-account-id>"
+  # Each workspace (dev/prod) gets its own state object under env:/<workspace>/.
+  backend "s3" {
+    key    = "comitai/terraform.tfstate"
+    region = "sa-east-1"
+  }
 }
 
 provider "aws" {

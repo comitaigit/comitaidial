@@ -30,9 +30,29 @@ aws ecr get-login-password --region "$AWS_REGION" | \
   docker login --username AWS --password-stdin "$(echo "$ECR_BACKEND" | cut -d/ -f1)"
 
 echo "Fetching secrets from Secrets Manager..."
-DATABASE_URL=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/DATABASE_URL" --query SecretString --output text)
-JWT_ACCESS_SECRET=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/JWT_ACCESS_SECRET" --query SecretString --output text)
-JWT_REFRESH_SECRET=$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$SECRET_PREFIX/JWT_REFRESH_SECRET" --query SecretString --output text)
+get_secret() {
+  aws secretsmanager get-secret-value --region "$AWS_REGION" \
+    --secret-id "$SECRET_PREFIX/$1" --query SecretString --output text 2>/dev/null || {
+    echo "ERROR: secret $SECRET_PREFIX/$1 has no value yet. Set it in AWS Secrets Manager, then re-run ./deploy.sh" >&2
+    exit 1
+  }
+}
+
+DATABASE_URL=$(get_secret DATABASE_URL)
+JWT_ACCESS_SECRET=$(get_secret JWT_ACCESS_SECRET)
+JWT_REFRESH_SECRET=$(get_secret JWT_REFRESH_SECRET)
+TOKEN_ENCRYPTION_KEY=$(get_secret TOKEN_ENCRYPTION_KEY)
+TWILIO_ACCOUNT_SID=$(get_secret TWILIO_ACCOUNT_SID)
+TWILIO_AUTH_TOKEN=$(get_secret TWILIO_AUTH_TOKEN)
+TWILIO_PHONE_NUMBER=$(get_secret TWILIO_PHONE_NUMBER)
+TWILIO_API_KEY_SID=$(get_secret TWILIO_API_KEY_SID)
+TWILIO_API_KEY_SECRET=$(get_secret TWILIO_API_KEY_SECRET)
+TWILIO_TWIML_APP_SID=$(get_secret TWILIO_TWIML_APP_SID)
+ANTHROPIC_API_KEY=$(get_secret ANTHROPIC_API_KEY)
+DEEPGRAM_API_KEY=$(get_secret DEEPGRAM_API_KEY)
+GOOGLE_CLIENT_ID=$(get_secret GOOGLE_CLIENT_ID)
+GOOGLE_CLIENT_SECRET=$(get_secret GOOGLE_CLIENT_SECRET)
+LUSHA_API_KEY=$(get_secret LUSHA_API_KEY)
 
 cat > /home/ec2-user/backend.env <<EOF
 NODE_ENV=production
@@ -46,6 +66,20 @@ CORS_ORIGINS=${cors_origins}
 REFRESH_COOKIE_NAME=comitai_rt
 COOKIE_SECURE=${cookie_secure}
 COOKIE_DOMAIN=${cookie_domain}
+PUBLIC_API_URL=${scheme}://${api_domain}
+FRONTEND_URL=${scheme}://${frontend_domain}
+TOKEN_ENCRYPTION_KEY=$TOKEN_ENCRYPTION_KEY
+TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN
+TWILIO_PHONE_NUMBER=$TWILIO_PHONE_NUMBER
+TWILIO_API_KEY_SID=$TWILIO_API_KEY_SID
+TWILIO_API_KEY_SECRET=$TWILIO_API_KEY_SECRET
+TWILIO_TWIML_APP_SID=$TWILIO_TWIML_APP_SID
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+DEEPGRAM_API_KEY=$DEEPGRAM_API_KEY
+GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+LUSHA_API_KEY=$LUSHA_API_KEY
 EOF
 chmod 600 /home/ec2-user/backend.env
 
@@ -126,4 +160,27 @@ certbot --nginx \
   -d "${frontend_domain}" -d "${api_domain}" \
   --non-interactive --agree-tos -m admin@${frontend_domain} --redirect || \
   echo "certbot failed — likely DNS for ${frontend_domain}/${api_domain} isn't pointed at this instance's IP yet. Point the DNS, then SSH in and re-run: certbot --nginx -d ${frontend_domain} -d ${api_domain}"
+
+# pip-installed certbot (unlike the distro package) ships no renewal timer, and
+# Let's Encrypt certificates expire after 90 days — without this the site goes
+# down on its own once the first certificate lapses.
+cat > /etc/systemd/system/certbot-renew.service <<'UNIT'
+[Unit]
+Description=Renew Let's Encrypt certificates
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
+UNIT
+cat > /etc/systemd/system/certbot-renew.timer <<'UNIT'
+[Unit]
+Description=Twice-daily Let's Encrypt renewal check
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+RandomizedDelaySec=1800
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now certbot-renew.timer
 %{ endif ~}
