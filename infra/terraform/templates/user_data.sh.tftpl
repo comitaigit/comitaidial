@@ -160,4 +160,27 @@ certbot --nginx \
   -d "${frontend_domain}" -d "${api_domain}" \
   --non-interactive --agree-tos -m admin@${frontend_domain} --redirect || \
   echo "certbot failed — likely DNS for ${frontend_domain}/${api_domain} isn't pointed at this instance's IP yet. Point the DNS, then SSH in and re-run: certbot --nginx -d ${frontend_domain} -d ${api_domain}"
+
+# pip-installed certbot (unlike the distro package) ships no renewal timer, and
+# Let's Encrypt certificates expire after 90 days — without this the site goes
+# down on its own once the first certificate lapses.
+cat > /etc/systemd/system/certbot-renew.service <<'UNIT'
+[Unit]
+Description=Renew Let's Encrypt certificates
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"
+UNIT
+cat > /etc/systemd/system/certbot-renew.timer <<'UNIT'
+[Unit]
+Description=Twice-daily Let's Encrypt renewal check
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+RandomizedDelaySec=1800
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now certbot-renew.timer
 %{ endif ~}
